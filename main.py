@@ -3,15 +3,12 @@ import numpy as np
 import sounddevice as sd
 from dotenv import load_dotenv
 
-# Import our two employees
-from stt import transcribe
-from llm import ask_llm
-
-# Load the .env file so our API key is available
+# 1. Load the .env file FIRST
 load_dotenv()
 
-# Conversation history so the AI remembers what you talked about
-history = []
+# 2. Import our employees
+from stt import transcribe
+from llm import ask_llm
 
 def record_until_silence(threshold=0.012, silence_limit=1.2, max_len=12.0):
     """
@@ -40,12 +37,14 @@ def record_until_silence(threshold=0.012, silence_limit=1.2, max_len=12.0):
                 silence_count = 0 # You are still talking, reset the silence timer
                 
     # Convert the audio from decimal numbers (-1.0 to 1.0) to 16-bit integers 
-    # (which is what audio files like .wav use)
     audio = (np.concatenate(frames) * 32767).astype(np.int16)
     return audio
 
 def main():
     print("SAT buddy ready (laptop MVP). Press Ctrl+C to quit.")
+    
+    # Move history inside main() so Python doesn't get confused about scope
+    history = []
     
     while True:
         # 1. Record audio from mic
@@ -56,20 +55,23 @@ def main():
         # 2. Send audio to Groq Whisper to get text
         print("⏳ Transcribing...")
         user_text = transcribe(pcm)
-        if not user_text:
+        
+        # 3. Ignore empty transcriptions or hallucinations like "."
+        if not user_text or len(user_text) < 2:
+            print("Didn't catch that, please try again.\n")
             continue
             
         print(f"\nStudent: {user_text}")
         
-        # 3. Send text to Groq Llama to get an answer
+        # 4. Send text to Groq Llama to get an answer
         print("🧠 Tutor is thinking...")
         reply = ask_llm(user_text, history)
         print(f"Tutor: {reply}\n")
         
-        # 4. Save this exchange so the AI has memory next time
+        # 5. Save this exchange so the AI has memory next time
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": reply})
-        # Keep the history from getting too long (only remember last 8 messages)
+        # Keep the history from getting too long
         history = history[-8:]
 
 if __name__ == "__main__":
