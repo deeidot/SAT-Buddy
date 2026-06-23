@@ -1,0 +1,12 @@
+# Mac system files
+.DS_Store
+
+# Python virtual environment
+venv/
+
+# Environment variables (KEEP YOUR API KEYS SECRET!)
+.env
+
+# Python cache
+__pycache__/
+*.pyc
