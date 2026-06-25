@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAT Study Buddy</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f7f7f8; }
+        /* Sidebar */
+        .sidebar { width: 260px; background-color: #202123; color: white; padding: 10px; overflow-y: auto; }
+        .sidebar h2 { font-size: 16px; margin-top: 0; }
+        .conv-item { padding: 10px; border-radius: 5px; cursor: pointer; margin-bottom: 5px; font-size: 14px; }
+        .conv-item:hover { background-color: #343541; }
+        .conv-item.active { background-color: #444654; }
+        /* Main Chat */
+        .main { flex: 1; display: flex; flex-direction: column; }
+        .chat-box { flex: 1; padding: 20px; overflow-y: auto; }
+        .message { margin-bottom: 15px; max-width: 70%; padding: 12px; border-radius: 8px; line-height: 1.5; }
+        .user-msg { background-color: #10a37f; color: white; margin-left: auto; }
+        .tutor-msg { background-color: white; color: black; margin-right: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .timestamp { font-size: 10px; color: #666; margin-top: 5px; text-align: right; }
+        /* Controls */
+        .controls { padding: 20px; background-color: white; border-top: 1px solid #e5e5e5; display: flex; gap: 10px; align-items: center;}
+        #record-btn { background-color: #10a37f; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        #record-btn.recording { background-color: #ef4146; }
+        #status { font-size: 14px; color: #666; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>SAT Study Buddy</h2>
+        <div id="conversation-list"></div>
+    </div>
+
+    <div class="main">
+        <div class="chat-box" id="chat-box">
+            <div class="message tutor-msg">Hello! I'm your SAT Tutor. Click "New Question" and speak to me.</div>
+        </div>
+        <div class="controls">
+            <button id="record-btn">🎤 Hold to Record</button>
+            <span id="status">Ready</span>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let currentConvId = null;
+        let isRecording = false;
+
+        const recordBtn = document.getElementById('record-btn');
+        const statusText = document.getElementById('status');
+        const chatBox = document.getElementById('chat-box');
+
+        // Setup Audio Recording
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                mediaRecorder = new MediaRecorder(stream);
+                
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = sendAudio;
+            });
+
+        // Click to start/stop recording (simpler than holding for MVP)
+        recordBtn.addEventListener('click', () => {
+            if (!isRecording) {
+                audioChunks = [];
+                mediaRecorder.start();
+                isRecording = true;
+                recordBtn.classList.add('recording');
+                recordBtn.innerText = "⏹️ Stop & Send";
+                statusText.innerText = "Listening...";
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                recordBtn.classList.remove('recording');
+                recordBtn.innerText = "🎤 New Question";
+                statusText.innerText = "Thinking...";
+            }
+        });
+
+        // Send audio to Python Server
+        function sendAudio() {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'audio.webm');
+            formData.append('conversation_id', currentConvId);
+
+            fetch('/api/chat', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if(data.error) {
+                    statusText.innerText = data.error;
+                    return;
+                }
+                
+                // Update current conversation ID
+                currentConvId = data.conversation_id;
+                
+                // Add messages to chat window
+                addMessage('user', data.user_text);
+                addMessage('tutor', data.tutor_reply);
+                
+                statusText.innerText = "Ready";
+                loadConversations(); // Refresh sidebar
+            });
+        }
+
+        // Add a message bubble to the screen
+        function addMessage(role, text) {
+            const div = document.createElement('div');
+            div.className = `message ${role === 'user' ? 'user-msg' : 'tutor-msg'}`;
+            div.innerText = text;
+            
+            // Add timestamp
+            const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'timestamp';
+            timeDiv.innerText = time;
+            div.appendChild(timeDiv);
+
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Load sidebar conversations
+        function loadConversations() {
+            fetch('/api/conversations')
+                .then(res => res.json())
+                .then(convs => {
+                    const list = document.getElementById('conversation-list');
+                    list.innerHTML = '';
+                    convs.forEach(conv => {
+                        const div = document.createElement('div');
+                        div.className = 'conv-item';
+                        if(conv.id == currentConvId) div.classList.add('active');
+                        div.innerText = conv.title;
+                        div.onclick = () => loadConversation(conv.id);
+                        list.appendChild(div);
+                    });
+                });
+        }
+
+        // Load a specific conversation's messages
+        function loadConversation(convId) {
+            currentConvId = convId;
+            fetch(`/api/conversations/${convId}/messages`)
+                .then(res => res.json())
+                .then(msgs => {
+                    chatBox.innerHTML = '';
+                    msgs.forEach(msg => {
+                        addMessage(msg.role, msg.content);
+                    });
+                    loadConversations();
+                });
+        }
+
+        // Load sidebar on startup
+        loadConversations();
+    </script>
+</body>
+</html>
