@@ -30,6 +30,8 @@
 
     <div class="sidebar">
         <h2>SAT Study Buddy</h2>
+        <!-- NEW: New Chat Button -->
+        <button id="new-chat-btn" style="width: 100%; margin-bottom: 15px; padding: 10px; background-color: #10a37f; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">+ New Chat</button>
         <div id="conversation-list"></div>
     </div>
 
@@ -155,14 +157,37 @@
                 .then(res => res.json())
                 .then(msgs => {
                     chatBox.innerHTML = '';
-                    msgs.forEach(msg => {
-                        addMessage(msg.role, msg.content);
-                    });
-                    loadConversations();
+                    if(msgs.length === 0) {
+                        addMessage('tutor', "Hello! I'm your SAT tutor. What do you need help with today?");
+                    } else {
+                        msgs.forEach(msg => {
+                            addMessage(msg.role, msg.content);
+                        });
+                    }
+                    loadConversations(); // Refresh sidebar to highlight active chat
                 });
         }
 
-        // Load sidebar on startup
+                // --- New Chat Logic ---
+        const newChatBtn = document.getElementById('new-chat-btn');
+        
+        function startNewChat() {
+            currentConvId = null; // Reset the active conversation
+            chatBox.innerHTML = ''; // Clear the screen
+            
+            // Show the greeting message
+            addMessage('tutor', "Hello! I'm your SAT tutor. What do you need help with today?");
+            
+            // Remove the "active" highlight from all sidebar items
+            document.querySelectorAll('.conv-item').forEach(item => {
+                item.classList.remove('active');
+            });
+        }
+
+        newChatBtn.addEventListener('click', startNewChat);
+
+        // On startup, start with a fresh chat and load the sidebar
+        startNewChat();
         loadConversations();
     </script>
 </body>
