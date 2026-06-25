@@ -4,14 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SAT Study Buddy</title>
+    
+    <!-- MathJax Configuration -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <!-- Markdown Renderer -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <style>
         body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f7f7f8; }
         /* Sidebar */
         .sidebar { width: 260px; background-color: #202123; color: white; padding: 10px; overflow-y: auto; }
         .sidebar h2 { font-size: 16px; margin-top: 0; }
-        .conv-item { padding: 10px; border-radius: 5px; cursor: pointer; margin-bottom: 5px; font-size: 14px; }
+        .conv-item { padding: 10px; border-radius: 5px; cursor: pointer; margin-bottom: 5px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
         .conv-item:hover { background-color: #343541; }
         .conv-item.active { background-color: #444654; }
+        /* NEW: Delete Chat Button */
+        .delete-chat-btn { background: none; border: none; color: #8e8ea0; cursor: pointer; font-size: 16px; padding: 0 5px; line-height: 1; opacity: 0; transition: opacity 0.2s; }
+        .conv-item:hover .delete-chat-btn { opacity: 1; }
+        .delete-chat-btn:hover { color: #ef4146; }
         /* Main Chat */
         .main { flex: 1; display: flex; flex-direction: column; }
         .chat-box { flex: 1; padding: 20px; overflow-y: auto; }
@@ -20,27 +39,49 @@
         .tutor-msg { background-color: white; color: black; margin-right: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .timestamp { font-size: 10px; color: #666; margin-top: 5px; text-align: right; }
         /* Controls */
-        .controls { padding: 20px; background-color: white; border-top: 1px solid #e5e5e5; display: flex; gap: 10px; align-items: center;}
-        #record-btn { background-color: #10a37f; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: bold; }
-        #record-btn.recording { background-color: #ef4146; }
-        #status { font-size: 14px; color: #666; }
+        .controls { padding: 15px; background-color: white; border-top: 1px solid #e5e5e5; display: flex; flex-direction: column; gap: 10px;}
+        .input-row { display: flex; gap: 10px; align-items: center; }
+        #text-input { flex: 1; border: 1px solid #ccc; border-radius: 20px; padding: 10px 15px; font-size: 14px; outline: none; }
+        #send-btn { background-color: #10a37f; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        #record-btn { background-color: #f1f1f1; color: #333; border: 1px solid #ccc; padding: 10px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        #record-btn.recording { background-color: #ef4146; color: white; border-color: #ef4146; }
+        #image-btn { background-color: #f1f1f1; color: #333; border: 1px solid #ccc; padding: 10px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        
+        /* NEW: Image Preview Box */
+        #image-preview { display: none; position: relative; width: fit-content; margin-bottom: 5px; }
+        #preview-img { max-height: 80px; border-radius: 8px; border: 1px solid #ccc; }
+        #remove-img-btn { position: absolute; top: -5px; right: -5px; background: red; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 10px; text-align: center; line-height: 20px; }
+        #status { font-size: 12px; color: #666; text-align: right; }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
         <h2>SAT Study Buddy</h2>
-        <!-- NEW: New Chat Button -->
         <button id="new-chat-btn" style="width: 100%; margin-bottom: 15px; padding: 10px; background-color: #10a37f; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">+ New Chat</button>
         <div id="conversation-list"></div>
     </div>
 
     <div class="main">
-        <div class="chat-box" id="chat-box">
-            <div class="message tutor-msg">Hello! I'm your SAT Tutor. Click "New Question" and speak to me.</div>
-        </div>
+        <div class="chat-box" id="chat-box"></div>
         <div class="controls">
-            <button id="record-btn">🎤 Hold to Record</button>
+            <!-- NEW: Image Preview Area (Hidden until an image is pasted/added) -->
+            <div id="image-preview">
+                <img id="preview-img" src="">
+                <button id="remove-img-btn">X</button>
+            </div>
+
+            <div class="input-row">
+                <button id="record-btn">🎤</button>
+                <button id="image-btn">📸</button>
+                <input type="file" id="image-input" accept="image/*" style="display: none;">
+                
+                <!-- NEW: Text Input Box -->
+                <input type="text" id="text-input" placeholder="Ask a question or describe the image...">
+                
+                <!-- NEW: Send Button -->
+                <button id="send-btn">Send</button>
+            </div>
             <span id="status">Ready</span>
         </div>
     </div>
@@ -67,7 +108,7 @@
                 mediaRecorder.onstop = sendAudio;
             });
 
-        // Click to start/stop recording (simpler than holding for MVP)
+        // Click to start/stop recording
         recordBtn.addEventListener('click', () => {
             if (!isRecording) {
                 audioChunks = [];
@@ -102,16 +143,11 @@
                     statusText.innerText = data.error;
                     return;
                 }
-                
-                // Update current conversation ID
                 currentConvId = data.conversation_id;
-                
-                // Add messages to chat window
                 addMessage('user', data.user_text);
                 addMessage('tutor', data.tutor_reply);
-                
                 statusText.innerText = "Ready";
-                loadConversations(); // Refresh sidebar
+                loadConversations();
             });
         }
 
@@ -119,7 +155,10 @@
         function addMessage(role, text) {
             const div = document.createElement('div');
             div.className = `message ${role === 'user' ? 'user-msg' : 'tutor-msg'}`;
-            div.innerText = text;
+            
+            // Safely render Markdown (bold, lists, etc.) into HTML
+            const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            div.innerHTML = marked.parse(safeText);
             
             // Add timestamp
             const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -130,11 +169,16 @@
 
             chatBox.appendChild(div);
             chatBox.scrollTop = chatBox.scrollHeight;
+
+            // Tell MathJax to scan the new message and render any math
+            if (window.MathJax) {
+                MathJax.typesetPromise([div]).catch((err) => console.log(err));
+            }
         }
 
         // Load sidebar conversations
         function loadConversations() {
-            fetch('/api/conversations')
+            return fetch('/api/conversations')
                 .then(res => res.json())
                 .then(convs => {
                     const list = document.getElementById('conversation-list');
@@ -143,10 +187,45 @@
                         const div = document.createElement('div');
                         div.className = 'conv-item';
                         if(conv.id == currentConvId) div.classList.add('active');
-                        div.innerText = conv.title;
+                        
+                        // 1. Create the title span
+                        const titleSpan = document.createElement('span');
+                        titleSpan.innerText = conv.title;
+                        titleSpan.style.overflow = 'hidden';
+                        titleSpan.style.textOverflow = 'ellipsis';
+                        titleSpan.style.whiteSpace = 'nowrap';
+                        div.appendChild(titleSpan);
+                        
+                        // 2. Create the delete button
+                        const delBtn = document.createElement('button');
+                        delBtn.className = 'delete-chat-btn';
+                        delBtn.innerHTML = '&times;'; // The "X" symbol
+                        delBtn.onclick = (e) => {
+                            e.stopPropagation(); // CRITICAL: Prevents the click from also opening the chat
+                            deleteConversation(conv.id);
+                        };
+                        div.appendChild(delBtn);
+                        
+                        // 3. Click the chat to open it
                         div.onclick = () => loadConversation(conv.id);
                         list.appendChild(div);
                     });
+                    return convs; // Return for startup logic
+                });
+        }
+
+        // NEW: Function to call the backend and delete the chat
+        function deleteConversation(convId) {
+            fetch(`/api/conversations/${convId}/delete`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.success) {
+                        // If we just deleted the chat we are currently looking at, start a new one
+                        if(currentConvId == convId) {
+                            startNewChat();
+                        }
+                        loadConversations(); // Refresh sidebar
+                    }
                 });
         }
 
@@ -168,17 +247,13 @@
                 });
         }
 
-                // --- New Chat Logic ---
+        // --- New Chat Logic ---
         const newChatBtn = document.getElementById('new-chat-btn');
         
         function startNewChat() {
-            currentConvId = null; // Reset the active conversation
-            chatBox.innerHTML = ''; // Clear the screen
-            
-            // Show the greeting message
+            currentConvId = null;
+            chatBox.innerHTML = '';
             addMessage('tutor', "Hello! I'm your SAT tutor. What do you need help with today?");
-            
-            // Remove the "active" highlight from all sidebar items
             document.querySelectorAll('.conv-item').forEach(item => {
                 item.classList.remove('active');
             });
@@ -186,9 +261,133 @@
 
         newChatBtn.addEventListener('click', startNewChat);
 
-        // On startup, start with a fresh chat and load the sidebar
-        startNewChat();
-        loadConversations();
+        // --- Text & Image Input Logic ---
+        const textInput = document.getElementById('text-input');
+        const sendBtn = document.getElementById('send-btn');
+        const imagePreview = document.getElementById('image-preview');
+        const previewImg = document.getElementById('preview-img');
+        const removeImgBtn = document.getElementById('remove-img-btn');
+        const imageBtn = document.getElementById('image-btn'); // FIX: Added missing definition
+        const imageInput = document.getElementById('image-input'); // FIX: Added missing definition
+        
+        let selectedImageFile = null; // This holds the pasted/uploaded image
+
+        // 1. Handle adding an image (from upload or paste)
+        function handleImageFile(file) {
+            if (!file) return;
+            selectedImageFile = file;
+            
+            // Show the preview box
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImg.src = e.target.result;
+                imagePreview.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+            
+            statusText.innerText = "Image attached. Add text or click Send.";
+        }
+
+        // 2. Handle removing the image
+        removeImgBtn.addEventListener('click', () => {
+            selectedImageFile = null;
+            imagePreview.style.display = 'none';
+            previewImg.src = '';
+            statusText.innerText = "Ready";
+        });
+
+        // 3. Click the upload button -> trigger hidden file input
+        imageBtn.addEventListener('click', () => {
+            imageInput.click();
+        });
+
+        imageInput.addEventListener('change', () => {
+            handleImageFile(imageInput.files[0]);
+            imageInput.value = ''; 
+        });
+
+        // 4. Paste Image Feature
+        window.addEventListener('paste', (event) => {
+            const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+            for (const item of items) {
+                if (item.type.indexOf('image') === 0) {
+                    const file = item.getAsFile();
+                    handleImageFile(file);
+                    break; 
+                }
+            }
+        });
+
+        // 5. Send Message (Text and/or Image)
+        function sendMessage() {
+            const text = textInput.value.trim();
+            
+            // Don't do anything if both text and image are empty
+            if (!text && !selectedImageFile) return;
+
+            statusText.innerText = "Thinking...";
+
+            if (selectedImageFile) {
+                // Send Image + Text
+                const formData = new FormData();
+                formData.append('image', selectedImageFile);
+                formData.append('text', text); // Send the text along with it
+                formData.append('conversation_id', currentConvId);
+
+                fetch('/api/chat_image', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.error) { statusText.innerText = data.error; return; }
+                    currentConvId = data.conversation_id;
+                    addMessage('user', data.user_text);
+                    addMessage('tutor', data.tutor_reply);
+                    clearInputs();
+                });
+            } else {
+                // Send Text Only
+                fetch('/api/chat_text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text, conversation_id: currentConvId })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.error) { statusText.innerText = data.error; return; }
+                    currentConvId = data.conversation_id;
+                    addMessage('user', data.user_text);
+                    addMessage('tutor', data.tutor_reply);
+                    clearInputs();
+                });
+            }
+        }
+
+        // 6. Clear inputs after sending
+        function clearInputs() {
+            textInput.value = '';
+            selectedImageFile = null;
+            imagePreview.style.display = 'none';
+            previewImg.src = '';
+            statusText.innerText = "Ready";
+            loadConversations();
+        }
+
+        // 7. Listen for Enter key or Send button click
+        sendBtn.addEventListener('click', sendMessage);
+        textInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // --- Startup Logic ---
+        // On startup, load sidebar. If you have past chats, open the most recent one.
+        loadConversations().then(convs => {
+            if (convs.length > 0) {
+                loadConversation(convs[0].id);
+            } else {
+                startNewChat();
+            }
+        });
     </script>
 </body>
 </html>

@@ -9,7 +9,7 @@ from datetime import datetime
 # Load our employees (reusing your exact code!)
 load_dotenv()
 from stt import transcribe
-from llm import ask_llm
+from llm import ask_llm, ask_llm_with_image
 from database import DB_NAME
 
 app = Flask(__name__)
@@ -96,6 +96,122 @@ def chat():
         "user_text": user_text,
         "tutor_reply": reply
     })
+
+# Route 5: Receive image, process it, return answer
+@app.route('/api/chat_image', methods=['POST'])
+def chat_image():
+    # 1. Get the image file and text from the website
+    image_file = request.files.get('image')
+    user_text = request.form.get('text', '')
+    conv_id = request.form.get('conversation_id')
+
+    if not image_file:
+        return jsonify({"error": "No image provided"}), 400
+
+    # 2. Convert the image to a Base64 string
+    import base64
+    image_bytes = image_file.read()
+    base64_image = base64.b64encode(image_bytes).decode('utf-8')
+
+    # 3. Load conversation history from database
+    history = []
+    if conv_id and conv_id != 'null':
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        msgs = conn.execute('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC', (conv_id,)).fetchall()
+        history = [{"role": m['role'], "content": m['content']} for m in msgs]
+        conn.close()
+
+    # 4. Ask the Vision Tutor
+    reply = ask_llm_with_image(user_text, base64_image, history)
+
+    # 5. Save to database
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    if not conv_id or conv_id == 'null':
+        cursor.execute('INSERT INTO conversations (title) VALUES (?)', ("Image Question...",))
+        conv_id = cursor.lastrowid
+    else:
+        conv_id = int(conv_id)
+
+    # Save user message (we note that it was an image)
+    cursor.execute('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)', 
+                   (conv_id, "user", f"[Image Uploaded] {user_text}"))
+    cursor.execute('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)', 
+                   (conv_id, "assistant", reply))
+    conn.commit()
+    conn.close()
+
+    # 6. Send the answer back to the website
+    return jsonify({
+        "conversation_id": conv_id,
+        "user_text": f"[Image Uploaded] {user_text}",
+        "tutor_reply": reply
+    })
+
+# Route 6: Receive plain text, process it, return answer
+@app.route('/api/chat_text', methods=['POST'])
+def chat_text():
+    # 1. Get the text from the website
+    data = request.get_json()
+    user_text = data.get('text', '').strip()
+    conv_id = data.get('conversation_id')
+
+    if not user_text:
+        return jsonify({"error": "No text provided"}), 400
+
+    # 2. Load conversation history
+    history = []
+    if conv_id and conv_id != 'null':
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        msgs = conn.execute('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC', (conv_id,)).fetchall()
+        history = [{"role": m['role'], "content": m['content']} for m in msgs]
+        conn.close()
+
+    # 3. Ask the Tutor
+    reply = ask_llm(user_text, history)
+
+    # 4. Save to database
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    if not conv_id or conv_id == 'null':
+        cursor.execute('INSERT INTO conversations (title) VALUES (?)', (user_text[:30] + "...",))
+        conv_id = cursor.lastrowid
+    else:
+        conv_id = int(conv_id)
+
+    cursor.execute('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)', 
+                   (conv_id, "user", user_text))
+    cursor.execute('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)', 
+                   (conv_id, "assistant", reply))
+    conn.commit()
+    conn.close()
+
+    # 5. Send the answer back
+    return jsonify({
+        "conversation_id": conv_id,
+        "user_text": user_text,
+        "tutor_reply": reply
+    })
+
+# Route 7: Delete a specific conversation
+@app.route('/api/conversations/<int:conv_id>/delete', methods=['DELETE'])
+def delete_conversation(conv_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Delete the messages belonging to this conversation
+    cursor.execute('DELETE FROM messages WHERE conversation_id = ?', (conv_id,))
+    # Delete the conversation itself
+    cursor.execute('DELETE FROM conversations WHERE id = ?', (conv_id,))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"success": True})
 
 if __name__ == '__main__':
     # Run the server on port 5000
