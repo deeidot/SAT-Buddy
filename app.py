@@ -125,8 +125,8 @@ def chat_image():
         history = [{"role": m['role'], "content": m['content']} for m in msgs]
         conn.close()
 
-    # 4. Ask the Vision Tutor
-    reply = ask_llm_with_image(user_text, base64_image, history)
+    # 4. Ask the Vision Tutor (Passing the base64_image and current_emotion)
+    reply = ask_llm_with_image(user_text, base64_image, history, current_emotion)
 
     # 5. Save to database
     conn = sqlite3.connect(DB_NAME)
@@ -152,7 +152,6 @@ def chat_image():
         "user_text": f"[Image Uploaded] {user_text}",
         "tutor_reply": reply
     })
-
 # Route 6: Receive plain text, process it, return answer
 @app.route('/api/chat_text', methods=['POST'])
 def chat_text():
@@ -174,7 +173,7 @@ def chat_text():
         conn.close()
 
     # 3. Ask the Tutor
-    reply = ask_llm_with_image(user_text, base64_image, history, current_emotion)
+    reply = ask_llm(user_text, history, current_emotion)
 
     # 4. Save to database
     conn = sqlite3.connect(DB_NAME)

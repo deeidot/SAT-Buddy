@@ -47,6 +47,7 @@ def ask_llm_with_image(user_text, base64_image, history, user_emotion="neutral")
     if not user_text:
         user_text = "Please read the question in this image and solve it step-by-step."
 
+    # This is the special format Groq requires to accept an image
     user_message = {
         "role": "user",
         "content": [
@@ -59,6 +60,15 @@ def ask_llm_with_image(user_text, base64_image, history, user_emotion="neutral")
             }
         ]
     }
+    messages.append(user_message)
+    
+    response = client.chat.completions.create(
+        model="meta-llama/llama-4-scout-17b-16e-instruct", # Groq's vision model
+        messages=messages,
+        max_tokens=512,
+        temperature=0.6,
+    )
+    return response.choices[0].message.content
     messages.append(user_message)
     
     response = client.chat.completions.create(

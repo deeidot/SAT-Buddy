@@ -151,6 +151,11 @@
             });
         }
 
+        // NEW: Clean up LaTeX/Markdown so the voice doesn't read weird symbols
+        function cleanTextForTTS(text) {
+            return text.replace(/\$\$/g, '').replace(/\$/g, '').replace(/\\/g, '').replace(/\n/g, ' ').replace(/\*/g, '');
+        }
+
         function addMessage(role, text) {
             const div = document.createElement('div');
             div.className = `message ${role === 'user' ? 'user-msg' : 'tutor-msg'}`;
@@ -161,6 +166,20 @@
             const timeDiv = document.createElement('div');
             timeDiv.className = 'timestamp';
             timeDiv.innerText = time;
+
+            // NEW: Add a Speak button to Tutor messages
+            if (role === 'tutor') {
+                const speakBtn = document.createElement('button');
+                speakBtn.innerText = '🔊';
+                speakBtn.style.cssText = 'background: none; border: 1px solid #ccc; border-radius: 50%; cursor: pointer; font-size: 12px; margin-right: 10px; padding: 2px 6px;';
+                
+                // When clicked, speak the cleaned text
+                speakBtn.onclick = () => {
+                    speakText(cleanTextForTTS(text));
+                };
+                div.appendChild(speakBtn); // Put button before the timestamp
+            }
+
             div.appendChild(timeDiv);
 
             chatBox.appendChild(div);
@@ -360,6 +379,14 @@
             if (webcamContainer.style.display === 'none' || webcamContainer.style.display === '') {
                 webcamContainer.style.display = 'block';
                 webcamBtn.innerText = "🛑 Stop Tracker";
+                
+                // NEW: Unlock the browser's audio engine!
+                // We play a tiny empty sound to satisfy the browser's security rule.
+                if (window.speechSynthesis) {
+                    const unlockUtterance = new SpeechSynthesisUtterance("");
+                    window.speechSynthesis.speak(unlockUtterance);
+                }
+
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = stream;
                 emotionInterval = setInterval(detectEmotion, 2500);
