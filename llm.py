@@ -9,40 +9,44 @@ SAT_SYSTEM = """You are an experienced, encouraging SAT study buddy named Tutor.
 - Explain concepts concisely, give a worked example, then ask one practice question.
 - Plain language, no filler, never fabricate scoring rules.
 - Keep spoken-style answers under ~120 words so TTS stays snappy.
-- NEW: When showing math equations, ALWAYS format them using LaTeX (e.g., $$ \frac{1}{2} $$)."""
+- When showing math equations, ALWAYS format them using LaTeX (e.g., $$ \frac{1}{2} $$)."""
 
-def ask_llm(user_text, history):
+def ask_llm(user_text, history, user_emotion="neutral"):
     """
-    This function takes the user's text and the conversation history,
-    and asks Groq's Llama model to generate a reply.
+    Takes text, history, and emotion. Updates the system prompt dynamically
+    based on how the user is feeling, then asks Groq for a reply.
     """
-    # We build the "messages" array. LLMs read this like a script.
-    # [System] = the rules. [History] = what we said before. [User] = what you just said.
-    messages = [{"role": "system", "content": SAT_SYSTEM}] + history + \
+    # Change the system prompt based on emotion!
+    dynamic_prompt = SAT_SYSTEM
+    if user_emotion in ["sad", "fearful", "angry", "disgusted"]:
+        dynamic_prompt += "\n\nIMPORTANT: The user looks frustrated or upset right now. Be extra encouraging, offer a word of support, and perhaps suggest taking a 5-minute break if they are stuck."
+    elif user_emotion == "surprised":
+        dynamic_prompt += "\n\nThe user looks surprised. Maybe they just learned something new! Ask if that concept makes sense."
+
+    messages = [{"role": "system", "content": dynamic_prompt}] + history + \
                [{"role": "user", "content": user_text}]
     
-    # We send the script to Groq
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant", # Fast, free, and smart enough
+        model="llama-3.1-8b-instant",
         messages=messages,
-        max_tokens=256, # Limits how long the answer can be
-        temperature=0.6, # A little creative, but mostly factual
+        max_tokens=256,
+        temperature=0.6,
     )
-    
-    # Extract just the text from the response
     return response.choices[0].message.content
 
-def ask_llm_with_image(user_text, base64_image, history):
+def ask_llm_with_image(user_text, base64_image, history, user_emotion="neutral"):
     """
-    This function takes text AND an image, and asks Groq's Vision model to answer.
+    Takes text, image, history, and emotion. Asks Groq's Vision model to answer.
     """
-    messages = [{"role": "system", "content": SAT_SYSTEM}] + history
+    dynamic_prompt = SAT_SYSTEM
+    if user_emotion in ["sad", "fearful", "angry", "disgusted"]:
+        dynamic_prompt += "\n\nIMPORTANT: The user looks frustrated or upset right now. Be extra encouraging and supportive."
+
+    messages = [{"role": "system", "content": dynamic_prompt}] + history
     
-    # If the user didn't type anything, provide a default prompt
     if not user_text:
         user_text = "Please read the question in this image and solve it step-by-step."
 
-    # This is the special format Groq requires to accept an image
     user_message = {
         "role": "user",
         "content": [
@@ -57,11 +61,47 @@ def ask_llm_with_image(user_text, base64_image, history):
     }
     messages.append(user_message)
     
-    # Call Groq's Vision-capable model
     response = client.chat.completions.create(
         model="meta-llama/llama-4-scout-17b-16e-instruct", # Groq's vision model
         messages=messages,
         max_tokens=512,
         temperature=0.6,
+    )
+    return response.choices[0].message.content
+
+def proactive_checkin(emotion):
+    """
+    Called automatically when the user is frustrated for a long time.
+    Generates a short, spoken-style supportive message.
+    """
+    prompt = f"The user has been looking {emotion} for a while while studying. Say one short, encouraging sentence to check in on them. Keep it under 20 words. Do not ask a math question, just offer support."
+    
+    messages = [
+        {"role": "system", "content": "You are a supportive SAT tutor."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=messages,
+        max_tokens=50,
+        temperature=0.7,
+    )
+    
+    return response.choices[0].message.content
+
+def proactive_checkin(emotion):
+    prompt = f"The user has been looking {emotion} for a while while studying. Say one short, encouraging sentence to check in on them. Keep it under 20 words. Do not ask a math question, just offer support."
+    
+    messages = [
+        {"role": "system", "content": "You are a supportive SAT tutor."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=messages,
+        max_tokens=50,
+        temperature=0.7,
     )
     return response.choices[0].message.content

@@ -14,6 +14,9 @@ from database import DB_NAME
 
 app = Flask(__name__)
 
+# NEW: Store the user's current emotion globally
+current_emotion = "neutral"
+
 # Route 1: Serve the website
 @app.route('/')
 def index():
@@ -69,7 +72,7 @@ def chat():
         conn.close()
 
     # 5. Ask the Tutor (using your llm.py)
-    reply = ask_llm(user_text, history)
+    reply = ask_llm(user_text, history, current_emotion)
 
     # 6. Save everything to the database
     conn = sqlite3.connect(DB_NAME)
@@ -171,7 +174,7 @@ def chat_text():
         conn.close()
 
     # 3. Ask the Tutor
-    reply = ask_llm(user_text, history)
+    reply = ask_llm_with_image(user_text, base64_image, history, current_emotion)
 
     # 4. Save to database
     conn = sqlite3.connect(DB_NAME)
@@ -197,6 +200,15 @@ def chat_text():
         "tutor_reply": reply
     })
 
+# Route 6.5: Receive emotion from the webcam
+@app.route('/api/emotion', methods=['POST'])
+def update_emotion():
+    global current_emotion
+    data = request.get_json()
+    current_emotion = data.get('emotion', 'neutral')
+    # print(f"User emotion updated to: {current_emotion}") # Uncomment to see it in terminal
+    return jsonify({"success": True})
+
 # Route 7: Delete a specific conversation
 @app.route('/api/conversations/<int:conv_id>/delete', methods=['DELETE'])
 def delete_conversation(conv_id):
@@ -212,6 +224,14 @@ def delete_conversation(conv_id):
     conn.close()
     
     return jsonify({"success": True})
+
+# Route 8: Proactive emotional check-in
+@app.route('/api/proactive_checkin')
+def proactive_checkin():
+    emotion = current_emotion
+    print(f"Triggering proactive check-in. User seems: {emotion}")
+    reply = proactive_checkin(emotion)
+    return jsonify({"message": reply})
 
 if __name__ == '__main__':
     # Run the server on port 5000

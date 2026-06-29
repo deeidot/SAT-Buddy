@@ -19,6 +19,9 @@
     <!-- Markdown Renderer -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
+    <!-- Emotion Tracking Library -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
     <style>
         body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f7f7f8; }
         /* Sidebar */
@@ -27,12 +30,12 @@
         .conv-item { padding: 10px; border-radius: 5px; cursor: pointer; margin-bottom: 5px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
         .conv-item:hover { background-color: #343541; }
         .conv-item.active { background-color: #444654; }
-        /* NEW: Delete Chat Button */
+        /* Delete Chat Button */
         .delete-chat-btn { background: none; border: none; color: #8e8ea0; cursor: pointer; font-size: 16px; padding: 0 5px; line-height: 1; opacity: 0; transition: opacity 0.2s; }
         .conv-item:hover .delete-chat-btn { opacity: 1; }
         .delete-chat-btn:hover { color: #ef4146; }
         /* Main Chat */
-        .main { flex: 1; display: flex; flex-direction: column; }
+        .main { flex: 1; display: flex; flex-direction: column; position: relative; }
         .chat-box { flex: 1; padding: 20px; overflow-y: auto; }
         .message { margin-bottom: 15px; max-width: 70%; padding: 12px; border-radius: 8px; line-height: 1.5; }
         .user-msg { background-color: #10a37f; color: white; margin-left: auto; }
@@ -47,11 +50,17 @@
         #record-btn.recording { background-color: #ef4146; color: white; border-color: #ef4146; }
         #image-btn { background-color: #f1f1f1; color: #333; border: 1px solid #ccc; padding: 10px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
         
-        /* NEW: Image Preview Box */
+        /* Image Preview Box */
         #image-preview { display: none; position: relative; width: fit-content; margin-bottom: 5px; }
         #preview-img { max-height: 80px; border-radius: 8px; border: 1px solid #ccc; }
         #remove-img-btn { position: absolute; top: -5px; right: -5px; background: red; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 10px; text-align: center; line-height: 20px; }
         #status { font-size: 12px; color: #666; text-align: right; }
+
+        /* Webcam Container */
+        #webcam-container { position: absolute; top: 20px; right: 20px; width: 200px; height: 150px; border: 2px solid #10a37f; border-radius: 8px; overflow: hidden; z-index: 100; background: #000; display: none; }
+        #webcam { width: 100%; height: 100%; object-fit: cover; }
+        #emotion-label { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.6); color: white; font-size: 12px; text-align: center; padding: 2px 0; }
+        #webcam-btn { position: absolute; top: 20px; right: 230px; z-index: 100; padding: 8px; background: #444654; color: white; border: none; border-radius: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -63,9 +72,16 @@
     </div>
 
     <div class="main">
+        <!-- Floating Webcam Window -->
+        <div id="webcam-container">
+            <video id="webcam" autoplay muted></video>
+            <div id="emotion-label">Analyzing...</div>
+        </div>
+        <button id="webcam-btn">📷 Emotion Tracker</button>
+
         <div class="chat-box" id="chat-box"></div>
+        
         <div class="controls">
-            <!-- NEW: Image Preview Area (Hidden until an image is pasted/added) -->
             <div id="image-preview">
                 <img id="preview-img" src="">
                 <button id="remove-img-btn">X</button>
@@ -75,11 +91,7 @@
                 <button id="record-btn">🎤</button>
                 <button id="image-btn">📸</button>
                 <input type="file" id="image-input" accept="image/*" style="display: none;">
-                
-                <!-- NEW: Text Input Box -->
                 <input type="text" id="text-input" placeholder="Ask a question or describe the image...">
-                
-                <!-- NEW: Send Button -->
                 <button id="send-btn">Send</button>
             </div>
             <span id="status">Ready</span>
@@ -100,49 +112,37 @@
         navigator.mediaDevices.getUserMedia({ audio: true })
             .then(stream => {
                 mediaRecorder = new MediaRecorder(stream);
-                
-                mediaRecorder.ondataavailable = event => {
-                    audioChunks.push(event.data);
-                };
-
+                mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
                 mediaRecorder.onstop = sendAudio;
             });
 
-        // Click to start/stop recording
         recordBtn.addEventListener('click', () => {
             if (!isRecording) {
                 audioChunks = [];
                 mediaRecorder.start();
                 isRecording = true;
                 recordBtn.classList.add('recording');
-                recordBtn.innerText = "⏹️ Stop & Send";
+                recordBtn.innerText = "⏹️ Stop";
                 statusText.innerText = "Listening...";
             } else {
                 mediaRecorder.stop();
                 isRecording = false;
                 recordBtn.classList.remove('recording');
-                recordBtn.innerText = "🎤 New Question";
+                recordBtn.innerText = "🎤";
                 statusText.innerText = "Thinking...";
             }
         });
 
-        // Send audio to Python Server
         function sendAudio() {
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
             const formData = new FormData();
             formData.append('audio', audioBlob, 'audio.webm');
             formData.append('conversation_id', currentConvId);
 
-            fetch('/api/chat', {
-                method: 'POST',
-                body: formData
-            })
+            fetch('/api/chat', { method: 'POST', body: formData })
             .then(response => response.json())
             .then(data => {
-                if(data.error) {
-                    statusText.innerText = data.error;
-                    return;
-                }
+                if(data.error) { statusText.innerText = data.error; return; }
                 currentConvId = data.conversation_id;
                 addMessage('user', data.user_text);
                 addMessage('tutor', data.tutor_reply);
@@ -151,16 +151,12 @@
             });
         }
 
-        // Add a message bubble to the screen
         function addMessage(role, text) {
             const div = document.createElement('div');
             div.className = `message ${role === 'user' ? 'user-msg' : 'tutor-msg'}`;
-            
-            // Safely render Markdown (bold, lists, etc.) into HTML
             const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
             div.innerHTML = marked.parse(safeText);
             
-            // Add timestamp
             const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
             const timeDiv = document.createElement('div');
             timeDiv.className = 'timestamp';
@@ -169,14 +165,9 @@
 
             chatBox.appendChild(div);
             chatBox.scrollTop = chatBox.scrollHeight;
-
-            // Tell MathJax to scan the new message and render any math
-            if (window.MathJax) {
-                MathJax.typesetPromise([div]).catch((err) => console.log(err));
-            }
+            if (window.MathJax) { MathJax.typesetPromise([div]).catch((err) => console.log(err)); }
         }
 
-        // Load sidebar conversations
         function loadConversations() {
             return fetch('/api/conversations')
                 .then(res => res.json())
@@ -188,7 +179,6 @@
                         div.className = 'conv-item';
                         if(conv.id == currentConvId) div.classList.add('active');
                         
-                        // 1. Create the title span
                         const titleSpan = document.createElement('span');
                         titleSpan.innerText = conv.title;
                         titleSpan.style.overflow = 'hidden';
@@ -196,40 +186,33 @@
                         titleSpan.style.whiteSpace = 'nowrap';
                         div.appendChild(titleSpan);
                         
-                        // 2. Create the delete button
                         const delBtn = document.createElement('button');
                         delBtn.className = 'delete-chat-btn';
-                        delBtn.innerHTML = '&times;'; // The "X" symbol
+                        delBtn.innerHTML = '&times;';
                         delBtn.onclick = (e) => {
-                            e.stopPropagation(); // CRITICAL: Prevents the click from also opening the chat
+                            e.stopPropagation();
                             deleteConversation(conv.id);
                         };
                         div.appendChild(delBtn);
                         
-                        // 3. Click the chat to open it
                         div.onclick = () => loadConversation(conv.id);
                         list.appendChild(div);
                     });
-                    return convs; // Return for startup logic
+                    return convs;
                 });
         }
 
-        // NEW: Function to call the backend and delete the chat
         function deleteConversation(convId) {
             fetch(`/api/conversations/${convId}/delete`, { method: 'DELETE' })
                 .then(res => res.json())
                 .then(data => {
                     if(data.success) {
-                        // If we just deleted the chat we are currently looking at, start a new one
-                        if(currentConvId == convId) {
-                            startNewChat();
-                        }
-                        loadConversations(); // Refresh sidebar
+                        if(currentConvId == convId) { startNewChat(); }
+                        loadConversations();
                     }
                 });
         }
 
-        // Load a specific conversation's messages
         function loadConversation(convId) {
             currentConvId = convId;
             fetch(`/api/conversations/${convId}/messages`)
@@ -239,26 +222,19 @@
                     if(msgs.length === 0) {
                         addMessage('tutor', "Hello! I'm your SAT tutor. What do you need help with today?");
                     } else {
-                        msgs.forEach(msg => {
-                            addMessage(msg.role, msg.content);
-                        });
+                        msgs.forEach(msg => { addMessage(msg.role, msg.content); });
                     }
-                    loadConversations(); // Refresh sidebar to highlight active chat
+                    loadConversations();
                 });
         }
 
-        // --- New Chat Logic ---
         const newChatBtn = document.getElementById('new-chat-btn');
-        
         function startNewChat() {
             currentConvId = null;
             chatBox.innerHTML = '';
             addMessage('tutor', "Hello! I'm your SAT tutor. What do you need help with today?");
-            document.querySelectorAll('.conv-item').forEach(item => {
-                item.classList.remove('active');
-            });
+            document.querySelectorAll('.conv-item').forEach(item => { item.classList.remove('active'); });
         }
-
         newChatBtn.addEventListener('click', startNewChat);
 
         // --- Text & Image Input Logic ---
@@ -267,28 +243,22 @@
         const imagePreview = document.getElementById('image-preview');
         const previewImg = document.getElementById('preview-img');
         const removeImgBtn = document.getElementById('remove-img-btn');
-        const imageBtn = document.getElementById('image-btn'); // FIX: Added missing definition
-        const imageInput = document.getElementById('image-input'); // FIX: Added missing definition
-        
-        let selectedImageFile = null; // This holds the pasted/uploaded image
+        const imageBtn = document.getElementById('image-btn');
+        const imageInput = document.getElementById('image-input');
+        let selectedImageFile = null;
 
-        // 1. Handle adding an image (from upload or paste)
         function handleImageFile(file) {
             if (!file) return;
             selectedImageFile = file;
-            
-            // Show the preview box
             const reader = new FileReader();
             reader.onload = (e) => {
                 previewImg.src = e.target.result;
                 imagePreview.style.display = 'block';
             };
             reader.readAsDataURL(file);
-            
             statusText.innerText = "Image attached. Add text or click Send.";
         }
 
-        // 2. Handle removing the image
         removeImgBtn.addEventListener('click', () => {
             selectedImageFile = null;
             imagePreview.style.display = 'none';
@@ -296,17 +266,12 @@
             statusText.innerText = "Ready";
         });
 
-        // 3. Click the upload button -> trigger hidden file input
-        imageBtn.addEventListener('click', () => {
-            imageInput.click();
-        });
-
+        imageBtn.addEventListener('click', () => { imageInput.click(); });
         imageInput.addEventListener('change', () => {
             handleImageFile(imageInput.files[0]);
             imageInput.value = ''; 
         });
 
-        // 4. Paste Image Feature
         window.addEventListener('paste', (event) => {
             const items = (event.clipboardData || event.originalEvent.clipboardData).items;
             for (const item of items) {
@@ -318,22 +283,16 @@
             }
         });
 
-        // 5. Send Message (Text and/or Image)
         function sendMessage() {
             const text = textInput.value.trim();
-            
-            // Don't do anything if both text and image are empty
             if (!text && !selectedImageFile) return;
-
             statusText.innerText = "Thinking...";
 
             if (selectedImageFile) {
-                // Send Image + Text
                 const formData = new FormData();
                 formData.append('image', selectedImageFile);
-                formData.append('text', text); // Send the text along with it
+                formData.append('text', text);
                 formData.append('conversation_id', currentConvId);
-
                 fetch('/api/chat_image', { method: 'POST', body: formData })
                 .then(res => res.json())
                 .then(data => {
@@ -344,7 +303,6 @@
                     clearInputs();
                 });
             } else {
-                // Send Text Only
                 fetch('/api/chat_text', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -361,7 +319,6 @@
             }
         }
 
-        // 6. Clear inputs after sending
         function clearInputs() {
             textInput.value = '';
             selectedImageFile = null;
@@ -371,16 +328,113 @@
             loadConversations();
         }
 
-        // 7. Listen for Enter key or Send button click
         sendBtn.addEventListener('click', sendMessage);
         textInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendMessage();
+            if (e.key === 'Enter') { sendMessage(); }
+        });
+
+        // --- Emotion Tracking & Proactive TTS Logic ---
+        const webcamBtn = document.getElementById('webcam-btn');
+        const webcamContainer = document.getElementById('webcam-container');
+        const video = document.getElementById('webcam');
+        const emotionLabel = document.getElementById('emotion-label');
+        let emotionInterval = null;
+        let modelsLoaded = false;
+        let emotionCounter = 0;
+        let proactiveCooldown = false;
+
+        async function loadModels() {
+            const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
+            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+            modelsLoaded = true;
+            console.log("Emotion models loaded!");
+        }
+
+        webcamBtn.addEventListener('click', async () => {
+            if (!modelsLoaded) {
+                emotionLabel.innerText = "Loading models...";
+                await loadModels();
+            }
+
+            if (webcamContainer.style.display === 'none' || webcamContainer.style.display === '') {
+                webcamContainer.style.display = 'block';
+                webcamBtn.innerText = "🛑 Stop Tracker";
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                emotionInterval = setInterval(detectEmotion, 2500);
+            } else {
+                webcamContainer.style.display = 'none';
+                webcamBtn.innerText = "📷 Emotion Tracker";
+                clearInterval(emotionInterval);
+                const stream = video.srcObject;
+                if (stream) stream.getTracks().forEach(track => track.stop());
+                sendEmotionToBackend("neutral");
             }
         });
 
+        async function detectEmotion() {
+            if (video.paused || video.ended) return;
+            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
+            if (detection) {
+                const expressions = detection.expressions;
+                let maxEmotion = "neutral";
+                let maxValue = 0;
+                for (let [emotion, value] of Object.entries(expressions)) {
+                    if (value > maxValue) {
+                        maxValue = value;
+                        maxEmotion = emotion;
+                    }
+                }
+                emotionLabel.innerText = `Looks: ${maxEmotion}`;
+                sendEmotionToBackend(maxEmotion);
+
+                if (["sad", "angry", "fearful", "disgusted"].includes(maxEmotion)) {
+                    emotionCounter++;
+                    if (emotionCounter >= 4 && !proactiveCooldown) {
+                        triggerProactiveCheckin();
+                    }
+                } else {
+                    emotionCounter = 0;
+                }
+            } else {
+                emotionLabel.innerText = "No face found";
+            }
+        }
+
+        function sendEmotionToBackend(emotion) {
+            fetch('/api/emotion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emotion: emotion })
+            });
+        }
+
+        function speakText(text) {
+            if (window.speechSynthesis.speaking) { window.speechSynthesis.cancel(); }
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function triggerProactiveCheckin() {
+            proactiveCooldown = true;
+            emotionLabel.innerText = "Checking in...";
+            fetch('/api/proactive_checkin')
+                .then(res => res.json())
+                .then(data => {
+                    if(data.message) {
+                        addMessage('tutor', data.message);
+                        speakText(data.message);
+                    }
+                })
+                .finally(() => {
+                    setTimeout(() => { proactiveCooldown = false; }, 60000);
+                });
+        }
+
         // --- Startup Logic ---
-        // On startup, load sidebar. If you have past chats, open the most recent one.
         loadConversations().then(convs => {
             if (convs.length > 0) {
                 loadConversation(convs[0].id);
