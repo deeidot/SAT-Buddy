@@ -47,9 +47,20 @@ def chat():
     audio_file = request.files.get('audio')
     conv_id = request.form.get('conversation_id')
 
+    # NEW: Check if the audio file is empty (prevents ffmpeg crash)
+    if not audio_file or len(audio_file.read()) == 0:
+        return jsonify({"error": "Audio was empty. Please try speaking again."}), 400
+    
+    # CRITICAL: Rewind the file pointer so pydub can read it!
+    audio_file.seek(0)
+
     # 2. Convert webm (browser format) to wav (Groq format)
-    audio = AudioSegment.from_file(audio_file, format="webm")
-    audio = audio.set_frame_rate(16000).set_channels(1)
+    try:
+        audio = AudioSegment.from_file(audio_file, format="webm")
+        audio = audio.set_frame_rate(16000).set_channels(1)
+    except Exception as e:
+        print(f"Audio decoding error: {e}")
+        return jsonify({"error": "Could not process audio."}), 400
     
     # Export to a virtual WAV file in memory
     wav_buffer = io.BytesIO()
