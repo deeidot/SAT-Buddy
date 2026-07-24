@@ -757,9 +757,11 @@
             currentConvId: null,
             activeQuestion: null,
             explanationVisible: false,
+            questionHasAnswer: false,
             latestExplanation: '',
             searchBuddyHistory: [],
             plannerBuddyHistory: [],
+            latestPlan: [],
             sessionSeconds: 0,
             breakReminderShown: false,
             mediaRecorder: null,
@@ -865,7 +867,102 @@
             }
         }
 
+        function clearChatLog() {
+            chatLog.innerHTML = '';
+        }
+
+        function startNewChat() {
+            state.currentConvId = null;
+            clearChatLog();
+            addChatMessage('assistant', "Hi, I'm Buddy. What SAT question are we working through today?");
+            chatStatus.textContent = 'Ready';
+            loadConversations();
+        }
+
+        async function loadConversations() {
+            try {
+                const response = await fetch('/api/conversations');
+                const conversations = await response.json();
+                if (!response.ok) throw new Error('Could not load chats.');
+                renderConversationList(conversations);
+                return conversations;
+            } catch (error) {
+                conversationList.innerHTML = '';
+                chatStatus.textContent = error.message;
+                return [];
+            }
+        }
+
+        function renderConversationList(conversations) {
+            if (!Array.isArray(conversations)) return;
+            conversationList.innerHTML = '';
+
+            conversations.forEach(conversation => {
+                const item = document.createElement('button');
+                item.className = 'conversation-item';
+                item.type = 'button';
+                item.classList.toggle('active', conversation.id === state.currentConvId);
+
+                const title = document.createElement('span');
+                title.className = 'conversation-title';
+                title.textContent = conversation.title || 'SAT chat';
+
+                const deleteButton = document.createElement('span');
+                deleteButton.className = 'delete-chat-btn';
+                deleteButton.setAttribute('role', 'button');
+                deleteButton.setAttribute('aria-label', 'Delete chat');
+                deleteButton.textContent = 'x';
+                deleteButton.addEventListener('click', event => {
+                    event.stopPropagation();
+                    deleteConversation(conversation.id);
+                });
+
+                item.append(title, deleteButton);
+                item.addEventListener('click', () => loadConversation(conversation.id));
+                conversationList.appendChild(item);
+            });
+        }
+
+        async function loadConversation(conversationId) {
+            state.currentConvId = conversationId;
+            clearChatLog();
+            chatStatus.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}/messages`);
+                const messages = await response.json();
+                if (!response.ok) throw new Error('Could not load that chat.');
+
+                if (messages.length === 0) {
+                    addChatMessage('assistant', "Hi, I'm Buddy. What SAT question are we working through today?");
+                } else {
+                    messages.forEach(message => addChatMessage(message.role === 'assistant' ? 'assistant' : 'user', message.content));
+                }
+
+                chatStatus.textContent = 'Ready';
+                loadConversations();
+            } catch (error) {
+                chatStatus.textContent = error.message;
+            }
+        }
+
+        async function deleteConversation(conversationId) {
+            try {
+                const response = await fetch(`/api/conversations/${conversationId}/delete`, { method: 'DELETE' });
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error('Could not delete chat.');
+
+                if (state.currentConvId === conversationId) {
+                    startNewChat();
+                }
+                loadConversations();
+            } catch (error) {
+                chatStatus.textContent = error.message;
+            }
+        }
+
         function setActiveTab(tabId) {
+            state.activeTab = tabId;
             document.querySelectorAll('.tab-button').forEach(button => {
                 const isActive = button.dataset.tab === tabId;
                 button.classList.toggle('active', isActive);
@@ -880,6 +977,8 @@
         document.querySelectorAll('.tab-button').forEach(button => {
             button.addEventListener('click', () => setActiveTab(button.dataset.tab));
         });
+
+        newChatBtn.addEventListener('click', startNewChat);
 
         chatForm.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -904,6 +1003,7 @@
                 state.currentConvId = data.conversation_id;
                 addChatMessage('assistant', data.tutor_reply);
                 chatStatus.textContent = 'Ready';
+                loadConversations();
             } catch (error) {
                 chatStatus.textContent = error.message;
             }
@@ -914,7 +1014,7 @@
             const id = questionIdInput.value.trim();
             if (!id) return;
 
-            resetQuestion(false);
+            clearLoadedQuestion(false);
             questionIdInput.value = id;
             questionStatus.textContent = 'Searching...';
 
@@ -934,7 +1034,10 @@
 
         function loadQuestion(question) {
             state.activeQuestion = question;
+            state.questionHasAnswer = false;
+            state.explanationVisible = false;
             state.latestExplanation = question.explanation;
+            state.searchBuddyHistory = [];
             questionMeta.textContent = `${question.domain || 'SAT'} | ${question.skill || 'Practice'} | ID ${question.id}`;
             passageText.textContent = question.passage;
             explanationText.textContent = question.explanation;
@@ -954,6 +1057,8 @@
 
             answerActions.hidden = true;
             explanationBox.hidden = true;
+            toggleExplanationBtn.classList.remove('is-active');
+            toggleExplanationBtn.setAttribute('aria-pressed', 'false');
             questionView.hidden = false;
         }
 
@@ -967,21 +1072,17 @@
             }
 
             answerActions.hidden = false;
-            state.explanationVisible = true;
-            state.firstExplanationScrollPending = true;
-            explanationBox.hidden = false;
-            toggleExplanationBtn.classList.add('is-active');
-            toggleExplanationBtn.setAttribute('aria-pressed', 'true');
+            if (!state.questionHasAnswer) {
+                state.explanationVisible = true;
+                explanationBox.hidden = false;
+                toggleExplanationBtn.classList.add('is-active');
+                toggleExplanationBtn.setAttribute('aria-pressed', 'true');
+            }
+            state.questionHasAnswer = true;
             showExplainPopup(state.activeQuestion.explanation);
         }
 
         toggleExplanationBtn.addEventListener('click', () => {
-            if (state.explanationVisible && state.firstExplanationScrollPending) {
-                state.firstExplanationScrollPending = false;
-                explanationBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                return;
-            }
-
             state.explanationVisible = !state.explanationVisible;
             explanationBox.hidden = !state.explanationVisible;
             toggleExplanationBtn.classList.toggle('is-active', state.explanationVisible);
@@ -991,13 +1092,14 @@
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
 
-        resetQuestionBtn.addEventListener('click', () => resetQuestion(true));
+        resetQuestionBtn.addEventListener('click', () => resetQuestionToLoadedState(true));
 
-        function resetQuestion(shouldScroll) {
+        function clearLoadedQuestion(shouldScroll) {
             state.activeQuestion = null;
             state.explanationVisible = false;
-            state.firstExplanationScrollPending = false;
+            state.questionHasAnswer = false;
             state.latestExplanation = '';
+            state.searchBuddyHistory = [];
             questionView.hidden = true;
             answerActions.hidden = true;
             explanationBox.hidden = true;
@@ -1012,6 +1114,29 @@
             if (shouldScroll) {
                 questionSearchForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 questionIdInput.focus();
+            }
+        }
+
+        function resetQuestionToLoadedState(shouldScroll) {
+            if (!state.activeQuestion) {
+                clearLoadedQuestion(shouldScroll);
+                return;
+            }
+
+            state.explanationVisible = false;
+            state.questionHasAnswer = false;
+            answerActions.hidden = true;
+            explanationBox.hidden = true;
+            explainPopup.hidden = true;
+            toggleExplanationBtn.classList.remove('is-active');
+            toggleExplanationBtn.setAttribute('aria-pressed', 'false');
+            document.querySelectorAll('.answer-choice').forEach(choice => {
+                choice.classList.remove('wrong', 'correct');
+            });
+            questionStatus.textContent = 'Loaded';
+
+            if (shouldScroll) {
+                questionView.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
 
@@ -1041,6 +1166,9 @@
                 }
 
                 speakText(data.summary);
+                if (state.activeQuestion) {
+                    rememberBuddyExchange('question', 'Let Buddy explain the official explanation.', data.summary);
+                }
                 showBuddyStatus('Buddy is explaining.');
                 hideBuddyStatusSoon();
                 explainPopup.hidden = true;
@@ -1085,6 +1213,7 @@
         });
 
         function renderSchedule(blocks) {
+            state.latestPlan = blocks;
             scheduleList.innerHTML = '';
 
             blocks.forEach(block => {
@@ -1106,6 +1235,59 @@
 
             schedule.hidden = false;
             schedule.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function getBuddyContextPayload() {
+            if (state.activeTab === 'search-id') {
+                return {
+                    mode: 'question',
+                    history: state.searchBuddyHistory,
+                    context: {
+                        question: state.activeQuestion,
+                        explanation_visible: state.explanationVisible
+                    }
+                };
+            }
+
+            if (state.activeTab === 'study-planner') {
+                return {
+                    mode: 'planner',
+                    history: state.plannerBuddyHistory,
+                    context: {
+                        prompt: plannerPrompt.value.trim(),
+                        plan: state.latestPlan
+                    }
+                };
+            }
+
+            return {
+                mode: 'ai_tutor',
+                history: [],
+                context: {}
+            };
+        }
+
+        function rememberBuddyExchange(mode, userText, tutorReply) {
+            const target = mode === 'planner' ? state.plannerBuddyHistory : state.searchBuddyHistory;
+            target.push({ role: 'user', content: userText });
+            target.push({ role: 'assistant', content: tutorReply });
+            if (target.length > 8) {
+                target.splice(0, target.length - 8);
+            }
+        }
+
+        function updateWellbeingTimer() {
+            state.sessionSeconds += 1;
+            const minutes = Math.floor(state.sessionSeconds / 60);
+            const secondsUntilBreak = Math.max(0, 25 * 60 - state.sessionSeconds);
+            const minutesUntilBreak = Math.ceil(secondsUntilBreak / 60);
+            wellbeingTimer.textContent = `Focus ${minutes} min | break in ${minutesUntilBreak} min`;
+
+            if (state.sessionSeconds >= 25 * 60 && !state.breakReminderShown) {
+                state.breakReminderShown = true;
+                showBuddyStatus('Time for a 5-minute reset. Your score protects itself when your energy does too.');
+                speakText('Time for a 5-minute reset. Your score protects itself when your energy does too.');
+            }
         }
 
         async function startBuddyRecording(event) {
@@ -1197,8 +1379,12 @@
             }
 
             const formData = new FormData();
+            const buddyPayload = getBuddyContextPayload();
             formData.append('audio', blob, 'buddy.webm');
             formData.append('conversation_id', state.currentConvId);
+            formData.append('context_mode', buddyPayload.mode);
+            formData.append('page_context', JSON.stringify(buddyPayload.context));
+            formData.append('buddy_history', JSON.stringify(buddyPayload.history));
 
             try {
                 const response = await fetch('/api/chat', { method: 'POST', body: formData });
@@ -1207,9 +1393,15 @@
                     throw new Error(data.error || 'Buddy could not process the audio.');
                 }
 
-                state.currentConvId = data.conversation_id;
-                addChatMessage('user', data.user_text);
-                addChatMessage('assistant', data.tutor_reply);
+                if (buddyPayload.mode === 'ai_tutor') {
+                    state.currentConvId = data.conversation_id;
+                    addChatMessage('user', data.user_text);
+                    addChatMessage('assistant', data.tutor_reply);
+                    loadConversations();
+                } else {
+                    rememberBuddyExchange(buddyPayload.mode, data.user_text, data.tutor_reply);
+                }
+
                 speakText(data.tutor_reply);
                 showBuddyStatus('Ready');
                 hideBuddyStatusSoon();
@@ -1243,7 +1435,8 @@
 
         window.addEventListener('beforeunload', cleanupBuddyRecording);
 
-        addChatMessage('assistant', "Hi, I'm Buddy. What SAT question are we working through today?");
+        startNewChat();
+        setInterval(updateWellbeingTimer, 1000);
     </script>
 </body>
 </html>
