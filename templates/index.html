@@ -100,9 +100,12 @@
 
         .wellbeing-timer {
             margin-right: auto;
+            max-width: min(520px, 36vw);
+            overflow: hidden;
             color: var(--muted);
             font-size: 14px;
             font-weight: 700;
+            text-overflow: ellipsis;
             white-space: nowrap;
         }
 
@@ -385,44 +388,127 @@
             margin: 0 auto;
         }
 
-        .question-bank-list {
-            display: grid;
-            gap: 8px;
-            margin-top: 14px;
+        .filter-shell {
+            width: min(900px, 100%);
+            margin: 0 auto;
         }
 
-        .question-bank-item {
+        .filter-grid {
             display: grid;
-            grid-template-columns: 78px 1fr;
-            gap: 10px;
-            align-items: center;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .filter-field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .filter-field label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 900;
+        }
+
+        .select {
             width: 100%;
-            min-height: 44px;
-            padding: 9px 11px;
+            min-height: 46px;
             border: 1px solid var(--line);
             border-radius: 8px;
             background: #ffffff;
             color: var(--text);
-            text-align: left;
+            padding: 0 12px;
+            outline: none;
         }
 
-        .question-bank-item:hover {
-            border-color: var(--green);
-            background: #fbfdfc;
+        .select:disabled {
+            background: #f1f4f3;
+            color: #94a19c;
+            cursor: not-allowed;
         }
 
-        .bank-id {
-            color: var(--green-dark);
+        .filter-results {
+            margin-top: 18px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #ffffff;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .filter-results summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 54px;
+            padding: 0 16px;
+            cursor: pointer;
             font-weight: 900;
         }
 
-        .bank-meta {
-            overflow: hidden;
+        .filter-result-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+            gap: 10px;
+            padding: 16px;
+            border-top: 1px solid var(--line);
+        }
+
+        .filter-question-tile {
+            display: grid;
+            place-items: center;
+            min-height: 58px;
+            border: 1px solid var(--line);
+            border-bottom: 4px solid var(--green);
+            border-radius: 8px;
+            background: #ffffff;
+            color: var(--text);
+            font-weight: 900;
+        }
+
+        .filter-question-tile:hover {
+            border-color: var(--green);
+        }
+
+        .filter-question-tile.medium {
+            border-bottom-color: var(--yellow);
+        }
+
+        .filter-question-tile.hard {
+            border-bottom-color: var(--red);
+        }
+
+        .difficulty-legend {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
             color: var(--muted);
-            font-size: 14px;
-            font-weight: 700;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            font-size: 13px;
+            font-weight: 800;
+            padding: 0 16px 14px;
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-swatch {
+            width: 18px;
+            height: 4px;
+            border-radius: 999px;
+            background: var(--green);
+        }
+
+        .legend-swatch.medium {
+            background: var(--yellow);
+        }
+
+        .legend-swatch.hard {
+            background: var(--red);
         }
 
         .question-view {
@@ -726,6 +812,7 @@
 
             .wellbeing-timer {
                 margin-right: 0;
+                max-width: 100%;
             }
 
             .tutor-layout {
@@ -739,6 +826,10 @@
             .search-row,
             .chat-composer {
                 flex-direction: column;
+            }
+
+            .filter-grid {
+                grid-template-columns: 1fr;
             }
 
             .schedule-block {
@@ -758,6 +849,7 @@
         <nav class="tabs" aria-label="Primary">
             <button class="tab-button active" type="button" data-tab="ai-tutor">AI Tutor</button>
             <button class="tab-button" type="button" data-tab="search-id">Search by ID</button>
+            <button class="tab-button" type="button" data-tab="filter-bank">Filter</button>
             <button class="tab-button" type="button" data-tab="study-planner">Study Planner</button>
         </nav>
     </header>
@@ -792,7 +884,6 @@
                         <button class="primary-button" type="submit">Search</button>
                     </form>
                     <div id="questionStatus" class="status-line">Ready</div>
-                    <div id="questionBankList" class="question-bank-list"></div>
                 </div>
             </div>
 
@@ -809,6 +900,56 @@
                     <p id="explanationText"></p>
                 </section>
             </article>
+        </section>
+
+        <section id="filter-bank" class="tab-panel workspace">
+            <div class="center-stack">
+                <div class="filter-shell">
+                    <h1 class="section-heading">Filter Question Bank</h1>
+                    <div class="filter-grid">
+                        <div class="filter-field">
+                            <label for="sectionFilter">Section</label>
+                            <select id="sectionFilter" class="select">
+                                <option value="">Choose section</option>
+                                <option value="Math">Math</option>
+                                <option value="Reading and Writing">Reading and Writing</option>
+                            </select>
+                        </div>
+                        <div class="filter-field">
+                            <label for="domainFilter">Domain</label>
+                            <select id="domainFilter" class="select" disabled>
+                                <option value="">Choose domain</option>
+                            </select>
+                        </div>
+                        <div class="filter-field">
+                            <label for="skillFilter">Focus skill</label>
+                            <select id="skillFilter" class="select" disabled>
+                                <option value="">Choose focus skill</option>
+                            </select>
+                        </div>
+                        <div class="filter-field">
+                            <label for="difficultyFilter">Difficulty</label>
+                            <select id="difficultyFilter" class="select" disabled>
+                                <option value="">Choose difficulty</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="filterStatus" class="status-line">Choose a section to begin.</div>
+
+                    <details id="filterResultsPanel" class="filter-results" open hidden>
+                        <summary>
+                            <span id="filterResultsTitle">Matching Questions</span>
+                            <span id="filterResultsCount">0</span>
+                        </summary>
+                        <div id="filterResultGrid" class="filter-result-grid"></div>
+                        <div class="difficulty-legend" aria-label="Difficulty legend">
+                            <span class="legend-item"><span class="legend-swatch"></span>Easy</span>
+                            <span class="legend-item"><span class="legend-swatch medium"></span>Medium</span>
+                            <span class="legend-item"><span class="legend-swatch hard"></span>Hard</span>
+                        </div>
+                    </details>
+                </div>
+            </div>
         </section>
 
         <section id="study-planner" class="tab-panel workspace">
@@ -862,11 +1003,13 @@
             latestExplanation: '',
             searchBuddyHistory: [],
             plannerBuddyHistory: [],
+            filterBuddyHistory: [],
             latestPlan: [],
             planBlockIndex: 0,
             planRemainingSeconds: 0,
             planTimerId: null,
             planRunning: false,
+            planComplete: false,
             sessionSeconds: 0,
             breakReminderShown: false,
             mediaRecorder: null,
@@ -879,6 +1022,69 @@
             stopRequested: false
         };
 
+        const FILTER_FALLBACK = {
+            sections: ['Math', 'Reading and Writing'],
+            domains: {
+                'Reading and Writing': [
+                    'Information and Ideas',
+                    'Craft and Structure',
+                    'Expression of Ideas',
+                    'Standard English Conventions'
+                ],
+                Math: [
+                    'Algebra',
+                    'Advanced Math',
+                    'Problem-Solving and Data Analysis',
+                    'Geometry and Trigonometry'
+                ]
+            },
+            skills: {
+                'Information and Ideas': [
+                    'Central Ideas and Details',
+                    'Command of Evidence (Textual)',
+                    'Command of Evidence (Quantitative)',
+                    'Inferences'
+                ],
+                'Craft and Structure': [
+                    'Words in Context',
+                    'Text Structure and Purpose',
+                    'Cross-Text Connections'
+                ],
+                'Expression of Ideas': [
+                    'Rhetorical Synthesis',
+                    'Transitions'
+                ],
+                'Standard English Conventions': [
+                    'Boundaries',
+                    'Form, Structure, and Sense'
+                ],
+                Algebra: [
+                    'Linear Equations',
+                    'Linear Functions',
+                    'Systems of Linear Equations',
+                    'Linear Inequalities'
+                ],
+                'Advanced Math': [
+                    'Equivalent Expressions',
+                    'Nonlinear Equations',
+                    'Nonlinear Functions'
+                ],
+                'Problem-Solving and Data Analysis': [
+                    'Ratios, Rates, and Proportions',
+                    'Percentages',
+                    'Probability',
+                    'Data Distributions'
+                ],
+                'Geometry and Trigonometry': [
+                    'Area and Volume',
+                    'Lines, Angles, and Triangles',
+                    'Right Triangles and Trigonometry',
+                    'Circles'
+                ]
+            },
+            difficulties: ['Easy', 'Medium', 'Hard']
+        };
+
         const chatLog = document.getElementById('chatLog');
         const chatForm = document.getElementById('chatForm');
         const chatInput = document.getElementById('chatInput');
@@ -889,7 +1095,6 @@
         const questionSearchForm = document.getElementById('questionSearchForm');
         const questionIdInput = document.getElementById('questionIdInput');
         const questionStatus = document.getElementById('questionStatus');
-        const questionBankList = document.getElementById('questionBankList');
         const questionView = document.getElementById('questionView');
         const questionMeta = document.getElementById('questionMeta');
         const passageText = document.getElementById('passageText');
@@ -899,6 +1104,15 @@
         const resetQuestionBtn = document.getElementById('resetQuestionBtn');
         const explanationBox = document.getElementById('explanationBox');
         const explanationText = document.getElementById('explanationText');
+        const sectionFilter = document.getElementById('sectionFilter');
+        const domainFilter = document.getElementById('domainFilter');
+        const skillFilter = document.getElementById('skillFilter');
+        const difficultyFilter = document.getElementById('difficultyFilter');
+        const filterStatus = document.getElementById('filterStatus');
+        const filterResultsPanel = document.getElementById('filterResultsPanel');
+        const filterResultsTitle = document.getElementById('filterResultsTitle');
+        const filterResultsCount = document.getElementById('filterResultsCount');
+        const filterResultGrid = document.getElementById('filterResultGrid');
         const plannerForm = document.getElementById('plannerForm');
         const plannerPrompt = document.getElementById('plannerPrompt');
         const plannerStatus = document.getElementById('plannerStatus');
@@ -1148,30 +1362,170 @@
             }
         }
 
-        async function loadQuestionBankList() {
+        function populateSelect(select, values, placeholder) {
+            select.innerHTML = `<option value="">${placeholder}</option>`;
+            values.forEach(value => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = value;
+                select.appendChild(option);
+            });
+            select.disabled = values.length === 0;
+        }
+
+        async function loadFilterOptions() {
+            const params = new URLSearchParams();
+            if (sectionFilter.value) params.set('section', sectionFilter.value);
+            if (domainFilter.value) params.set('domain', domainFilter.value);
+            if (skillFilter.value) params.set('skill', skillFilter.value);
+
+            const response = await fetch(`/api/question_filters?${params.toString()}`);
+            const data = await response.json();
+            if (!response.ok) throw new Error('Could not load filters.');
+            return data;
+        }
+
+        async function initializeFilters() {
+            populateSelect(sectionFilter, FILTER_FALLBACK.sections, 'Choose section');
             try {
-                const response = await fetch('/api/questions?limit=20');
+                const data = await loadFilterOptions();
+                populateSelect(sectionFilter, data.sections && data.sections.length ? data.sections : FILTER_FALLBACK.sections, 'Choose section');
+                domainFilter.disabled = true;
+                skillFilter.disabled = true;
+                difficultyFilter.disabled = true;
+            } catch (error) {
+                domainFilter.disabled = true;
+                skillFilter.disabled = true;
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a section to begin.';
+            }
+        }
+
+        async function handleSectionFilterChange() {
+            domainFilter.value = '';
+            skillFilter.value = '';
+            difficultyFilter.value = '';
+            filterResultsPanel.hidden = true;
+            filterResultGrid.innerHTML = '';
+
+            if (!sectionFilter.value) {
+                domainFilter.disabled = true;
+                skillFilter.disabled = true;
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a section to begin.';
+                return;
+            }
+
+            try {
+                const data = await loadFilterOptions();
+                const fallbackDomains = FILTER_FALLBACK.domains[sectionFilter.value] || [];
+                populateSelect(domainFilter, data.domains && data.domains.length ? data.domains : fallbackDomains, 'Choose domain');
+                skillFilter.disabled = true;
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a domain.';
+            } catch (error) {
+                populateSelect(domainFilter, FILTER_FALLBACK.domains[sectionFilter.value] || [], 'Choose domain');
+                skillFilter.disabled = true;
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a domain.';
+            }
+        }
+
+        async function handleDomainFilterChange() {
+            skillFilter.value = '';
+            difficultyFilter.value = '';
+            filterResultsPanel.hidden = true;
+            filterResultGrid.innerHTML = '';
+
+            if (!domainFilter.value) {
+                skillFilter.disabled = true;
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a domain.';
+                return;
+            }
+
+            try {
+                const data = await loadFilterOptions();
+                const fallbackSkills = FILTER_FALLBACK.skills[domainFilter.value] || [];
+                populateSelect(skillFilter, data.skills && data.skills.length ? data.skills : fallbackSkills, 'Choose focus skill');
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a focus skill.';
+            } catch (error) {
+                populateSelect(skillFilter, FILTER_FALLBACK.skills[domainFilter.value] || [], 'Choose focus skill');
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a focus skill.';
+            }
+        }
+
+        async function handleSkillFilterChange() {
+            difficultyFilter.value = '';
+            filterResultsPanel.hidden = true;
+            filterResultGrid.innerHTML = '';
+
+            if (!skillFilter.value) {
+                difficultyFilter.disabled = true;
+                filterStatus.textContent = 'Choose a focus skill.';
+                return;
+            }
+
+            try {
+                const data = await loadFilterOptions();
+                populateSelect(difficultyFilter, data.difficulties && data.difficulties.length ? data.difficulties : FILTER_FALLBACK.difficulties, 'Choose difficulty');
+                filterStatus.textContent = 'Choose a difficulty.';
+            } catch (error) {
+                populateSelect(difficultyFilter, FILTER_FALLBACK.difficulties, 'Choose difficulty');
+                filterStatus.textContent = 'Choose a difficulty.';
+            }
+        }
+
+        async function loadFilteredQuestions() {
+            if (!sectionFilter.value || !domainFilter.value || !skillFilter.value || !difficultyFilter.value) {
+                filterResultsPanel.hidden = true;
+                filterStatus.textContent = 'Choose section, domain, focus skill, and difficulty.';
+                return;
+            }
+
+            const params = new URLSearchParams({
+                section: sectionFilter.value,
+                domain: domainFilter.value,
+                skill: skillFilter.value,
+                difficulty: difficultyFilter.value,
+                limit: '100'
+            });
+
+            try {
+                filterStatus.textContent = 'Loading matching questions...';
+                const response = await fetch(`/api/questions?${params.toString()}`);
                 const data = await response.json();
                 if (!response.ok || !Array.isArray(data.questions)) {
-                    throw new Error('Could not load demo questions.');
+                    throw new Error('Could not load matching questions.');
                 }
-
-                questionBankList.innerHTML = '';
-                data.questions.forEach(question => {
-                    const item = document.createElement('button');
-                    item.className = 'question-bank-item';
-                    item.type = 'button';
-                    item.innerHTML = `
-                        <span class="bank-id">${escapeHTML(question.id)}</span>
-                        <span class="bank-meta">${escapeHTML(question.domain)} | ${escapeHTML(question.skill)}</span>
-                    `;
-                    item.addEventListener('click', () => loadQuestionById(question.id));
-                    questionBankList.appendChild(item);
-                });
+                renderFilteredQuestions(data.questions);
+                filterStatus.textContent = data.questions.length ? 'Ready' : 'No matching questions yet.';
             } catch (error) {
-                questionBankList.innerHTML = '';
-                questionStatus.textContent = error.message;
+                filterStatus.textContent = error.message;
             }
+        }
+
+        function renderFilteredQuestions(questions) {
+            filterResultGrid.innerHTML = '';
+            filterResultsPanel.hidden = false;
+            filterResultsTitle.textContent = `${sectionFilter.value} | ${domainFilter.value} | ${skillFilter.value} | ${difficultyFilter.value}`;
+            filterResultsCount.textContent = `${questions.length} result${questions.length === 1 ? '' : 's'}`;
+
+            questions.forEach((question, index) => {
+                const tile = document.createElement('button');
+                const difficulty = String(question.difficulty || '').toLowerCase();
+                tile.className = `filter-question-tile ${difficulty}`;
+                tile.type = 'button';
+                tile.textContent = String(index + 1);
+                tile.title = `${question.id} | ${question.preview || ''}`;
+                tile.addEventListener('click', () => {
+                    setActiveTab('search-id');
+                    loadQuestionById(question.id);
+                });
+                filterResultGrid.appendChild(tile);
+            });
         }
 
         function loadQuestion(question) {
@@ -1180,7 +1534,13 @@
             state.explanationVisible = false;
             state.latestExplanation = question.explanation;
             state.searchBuddyHistory = [];
-            questionMeta.textContent = `${question.domain || 'SAT'} | ${question.skill || 'Practice'} | ID ${question.id}`;
+            questionMeta.textContent = [
+                question.section,
+                question.domain,
+                question.skill,
+                question.difficulty,
+                `ID ${question.id}`
+            ].filter(Boolean).join(' | ');
             passageText.textContent = question.passage;
             explanationText.textContent = question.explanation;
             answerList.innerHTML = '';
@@ -1400,6 +1760,7 @@
             plannerControls.hidden = state.latestPlan.length === 0;
             state.planBlockIndex = 0;
             state.planRunning = false;
+            state.planComplete = false;
             state.planRemainingSeconds = state.latestPlan.length ? parseBlockDurationSeconds(state.latestPlan[0].time) : 0;
             renderPlanTimer();
         }
@@ -1411,6 +1772,7 @@
             document.querySelectorAll('.schedule-block').forEach(item => {
                 item.classList.toggle('active', Number(item.dataset.blockIndex) === state.planBlockIndex);
             });
+            renderHeaderTimer();
         }
 
         function startPlanTimer() {
@@ -1423,17 +1785,19 @@
             state.planRunning = false;
             clearInterval(state.planTimerId);
             state.planTimerId = null;
+            renderHeaderTimer();
         }
 
         function resetPlanTimer(shouldRender = true) {
             pausePlanTimer();
             state.planBlockIndex = 0;
+            state.planComplete = false;
             state.planRemainingSeconds = state.latestPlan.length ? parseBlockDurationSeconds(state.latestPlan[0].time) : 0;
             if (shouldRender) renderPlanTimer();
         }
 
         function tickPlanTimer() {
-            if (state.planRemainingSeconds > 0) {
+            if (state.planRemainingSeconds > 1) {
                 state.planRemainingSeconds -= 1;
                 renderPlanTimer();
                 return;
@@ -1442,6 +1806,9 @@
             state.planBlockIndex += 1;
             if (state.planBlockIndex >= state.latestPlan.length) {
                 pausePlanTimer();
+                state.planComplete = true;
+                state.planRemainingSeconds = 0;
+                renderHeaderTimer();
                 timerTask.textContent = 'Plan complete';
                 showBuddyStatus('Nice work. Close the loop with water, movement, or a short reset.');
                 speakText('Nice work. Close the loop with water, movement, or a short reset.');
@@ -1480,6 +1847,21 @@
                 };
             }
 
+            if (state.activeTab === 'filter-bank') {
+                return {
+                    mode: 'filter',
+                    history: state.filterBuddyHistory,
+                    context: {
+                        filters: {
+                            section: sectionFilter.value,
+                            domain: domainFilter.value,
+                            skill: skillFilter.value,
+                            difficulty: difficultyFilter.value
+                        }
+                    }
+                };
+            }
+
             return {
                 mode: 'ai_tutor',
                 history: [],
@@ -1488,7 +1870,9 @@
         }
 
         function rememberBuddyExchange(mode, userText, tutorReply) {
-            const target = mode === 'planner' ? state.plannerBuddyHistory : state.searchBuddyHistory;
+            let target = state.searchBuddyHistory;
+            if (mode === 'planner') target = state.plannerBuddyHistory;
+            if (mode === 'filter') target = state.filterBuddyHistory;
             target.push({ role: 'user', content: userText });
             target.push({ role: 'assistant', content: tutorReply });
             if (target.length > 8) {
@@ -1496,12 +1880,29 @@
             }
         }
 
-        function updateWellbeingTimer() {
-            state.sessionSeconds += 1;
+        function renderHeaderTimer() {
+            if (state.planComplete) {
+                wellbeingTimer.textContent = 'Plan complete | take a reset';
+                return;
+            }
+
+            const activeBlock = state.latestPlan[state.planBlockIndex];
+            if (activeBlock && !plannerControls.hidden) {
+                const typeLabel = activeBlock.type === 'break' ? 'Break' : 'Focus';
+                const prefix = state.planRunning ? '' : 'Paused | ';
+                wellbeingTimer.textContent = `${prefix}${typeLabel} ${formatCountdown(state.planRemainingSeconds)} | ${activeBlock.task}`;
+                return;
+            }
+
             const minutes = Math.floor(state.sessionSeconds / 60);
             const secondsUntilBreak = Math.max(0, 25 * 60 - state.sessionSeconds);
             const minutesUntilBreak = Math.ceil(secondsUntilBreak / 60);
             wellbeingTimer.textContent = `Focus ${minutes} min | break in ${minutesUntilBreak} min`;
+        }
+
+        function updateWellbeingTimer() {
+            state.sessionSeconds += 1;
+            renderHeaderTimer();
 
             if (state.sessionSeconds >= 25 * 60 && !state.breakReminderShown) {
                 state.breakReminderShown = true;
@@ -1655,11 +2056,15 @@
         startPlanBtn.addEventListener('click', startPlanTimer);
         pausePlanBtn.addEventListener('click', pausePlanTimer);
         resetPlanBtn.addEventListener('click', () => resetPlanTimer(true));
+        sectionFilter.addEventListener('change', handleSectionFilterChange);
+        domainFilter.addEventListener('change', handleDomainFilterChange);
+        skillFilter.addEventListener('change', handleSkillFilterChange);
+        difficultyFilter.addEventListener('change', loadFilteredQuestions);
 
         window.addEventListener('beforeunload', cleanupBuddyRecording);
 
         startNewChat();
-        loadQuestionBankList();
+        initializeFilters();
         setInterval(updateWellbeingTimer, 1000);
     </script>
 </body>

@@ -100,7 +100,7 @@ def get_question(question_id):
     conn = get_db()
     row = conn.execute(
         """
-        SELECT id, domain, skill, passage, answers_json, correct_index, explanation
+        SELECT id, section, domain, skill, difficulty, passage, answers_json, correct_index, explanation
         FROM questions
         WHERE id = ?
         """,
@@ -114,8 +114,10 @@ def get_question(question_id):
     return jsonify(
         {
             "id": row["id"],
+            "section": row["section"],
             "domain": row["domain"],
             "skill": row["skill"],
+            "difficulty": row["difficulty"],
             "passage": row["passage"],
             "answers": json.loads(row["answers_json"]),
             "correct_index": row["correct_index"],
@@ -127,35 +129,43 @@ def get_question(question_id):
 @app.route("/api/questions")
 def list_questions():
     search = request.args.get("q", "").strip()
+    section = request.args.get("section", "").strip()
     domain = request.args.get("domain", "").strip()
     skill = request.args.get("skill", "").strip()
+    difficulty = request.args.get("difficulty", "").strip()
 
     try:
         limit = min(max(int(request.args.get("limit", 20)), 1), 100)
     except ValueError:
         limit = 20
 
-    clauses = []
+    clauses = ["section IS NOT NULL", "domain IS NOT NULL", "skill IS NOT NULL", "difficulty IS NOT NULL"]
     params = []
     if search:
-        clauses.append("(id LIKE ? OR domain LIKE ? OR skill LIKE ? OR passage LIKE ?)")
+        clauses.append("(id LIKE ? OR section LIKE ? OR domain LIKE ? OR skill LIKE ? OR passage LIKE ?)")
         like_search = f"%{search}%"
-        params.extend([like_search, like_search, like_search, like_search])
+        params.extend([like_search, like_search, like_search, like_search, like_search])
+    if section:
+        clauses.append("section = ?")
+        params.append(section)
     if domain:
         clauses.append("domain = ?")
         params.append(domain)
     if skill:
         clauses.append("skill = ?")
         params.append(skill)
+    if difficulty:
+        clauses.append("difficulty = ?")
+        params.append(difficulty)
 
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     conn = get_db()
     rows = conn.execute(
         f"""
-        SELECT id, domain, skill, substr(passage, 1, 120) AS preview
+        SELECT id, section, domain, skill, difficulty, substr(passage, 1, 120) AS preview
         FROM questions
         {where_sql}
-        ORDER BY domain, skill, id
+        ORDER BY section, domain, skill, difficulty, id
         LIMIT ?
         """,
         (*params, limit),
@@ -163,6 +173,46 @@ def list_questions():
     conn.close()
 
     return jsonify({"questions": [dict(row) for row in rows]})
+
+
+@app.route("/api/question_filters")
+def question_filters():
+    section = request.args.get("section", "").strip()
+    domain = request.args.get("domain", "").strip()
+    skill = request.args.get("skill", "").strip()
+
+    clauses = ["section IS NOT NULL", "domain IS NOT NULL", "skill IS NOT NULL", "difficulty IS NOT NULL"]
+    params = []
+    if section:
+        clauses.append("section = ?")
+        params.append(section)
+    if domain:
+        clauses.append("domain = ?")
+        params.append(domain)
+    if skill:
+        clauses.append("skill = ?")
+        params.append(skill)
+
+    conn = get_db()
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT section, domain, skill, difficulty
+        FROM questions
+        WHERE {' AND '.join(clauses)}
+        ORDER BY section, domain, skill, difficulty
+        """,
+        params,
+    ).fetchall()
+    conn.close()
+
+    return jsonify(
+        {
+            "sections": sorted({row["section"] for row in rows}),
+            "domains": sorted({row["domain"] for row in rows}),
+            "skills": sorted({row["skill"] for row in rows}),
+            "difficulties": sorted({row["difficulty"] for row in rows}, key=lambda value: ["Easy", "Medium", "Hard"].index(value) if value in ["Easy", "Medium", "Hard"] else 99),
+        }
+    )
 
 
 @app.route("/api/buddy_explain", methods=["POST"])
@@ -227,10 +277,7 @@ def chat():
     if not user_text:
         return jsonify({"error": "Could not transcribe audio."}), 400
 
-    if context_mode == "question":
-        history = parse_json_field(request.form.get("buddy_history"), [])[-8:]
-        reply = ask_llm_with_page_context(user_text, history, page_context, current_emotion)
-    elif context_mode == "planner":
+    if context_mode in ("question", "planner", "filter"):
         history = parse_json_field(request.form.get("buddy_history"), [])[-8:]
         reply = ask_llm_with_page_context(user_text, history, page_context, current_emotion)
     else:

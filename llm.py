@@ -43,7 +43,7 @@ def _chat(messages, max_tokens=256, temperature=0.6, model="llama-3.1-8b-instant
     return response.choices[0].message.content.strip()
 
 
-def _fallback_plan(prompt):
+def _requested_total_minutes(prompt):
     total_minutes = 60
     hour_match = re.search(r"(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h)\b", prompt, re.I)
     minute_match = re.search(r"(\d+)\s*(minutes?|mins?|min|m)\b", prompt, re.I)
@@ -53,35 +53,58 @@ def _fallback_plan(prompt):
     elif minute_match:
         total_minutes = max(10, int(minute_match.group(1)))
 
+    return total_minutes
+
+
+def _focus_label(prompt):
     focus = prompt.strip().rstrip(".") or "the requested SAT topic"
     focus = re.sub(r"^i want to study\s+", "", focus, flags=re.I)
     focus = re.sub(r"\s+for\s+\d+.*$", "", focus, flags=re.I).strip() or "the requested SAT topic"
+    return focus
 
-    def fmt(minutes):
-        hours, mins = divmod(minutes, 60)
-        return f"{hours:02d}:{mins:02d}"
+
+def _format_minutes(minutes):
+    hours, mins = divmod(minutes, 60)
+    return f"{hours:02d}:{mins:02d}"
+
+
+def _build_pomodoro_plan(prompt, suggested_tasks=None):
+    total_minutes = _requested_total_minutes(prompt)
+    focus = _focus_label(prompt)
+    suggested_tasks = [task for task in (suggested_tasks or []) if task]
+
+    if not suggested_tasks:
+        suggested_tasks = [
+            f"Review {focus}",
+            f"Practice {focus} questions",
+            f"Check mistakes in {focus}",
+            f"Summarize key takeaways for {focus}",
+        ]
 
     blocks = []
     elapsed = 0
     remaining = total_minutes
+    study_index = 0
+
     while remaining > 0:
         study_minutes = min(25, remaining)
         blocks.append(
             {
-                "time": f"{fmt(elapsed)}-{fmt(elapsed + study_minutes)}",
-                "task": f"Study {focus}",
+                "time": f"{_format_minutes(elapsed)}-{_format_minutes(elapsed + study_minutes)}",
+                "task": suggested_tasks[study_index % len(suggested_tasks)],
                 "type": "study",
             }
         )
         elapsed += study_minutes
         remaining -= study_minutes
+        study_index += 1
 
         if remaining > 0:
             break_minutes = min(5, remaining)
             blocks.append(
                 {
-                    "time": f"{fmt(elapsed)}-{fmt(elapsed + break_minutes)}",
-                    "task": "Break",
+                    "time": f"{_format_minutes(elapsed)}-{_format_minutes(elapsed + break_minutes)}",
+                    "task": "Break: step away, drink water, and reset your eyes",
                     "type": "break",
                 }
             )
@@ -89,6 +112,19 @@ def _fallback_plan(prompt):
             remaining -= break_minutes
 
     return json.dumps(blocks)
+
+
+def _fallback_plan(prompt):
+    return _build_pomodoro_plan(prompt)
+
+
+def _extract_task_suggestions(raw_text):
+    parsed = json.loads(_extract_json_array(raw_text))
+    tasks = []
+    for block in parsed:
+        if block.get("type") == "study" and block.get("task"):
+            tasks.append(block["task"])
+    return tasks
 
 
 def _extract_json_array(raw_text):
@@ -180,6 +216,15 @@ def ask_llm_with_page_context(user_text, history, page_context=None, user_emotio
             "study time into realistic focus blocks with breaks, and keep the advice "
             "supportive rather than intense."
         )
+    elif mode == "filter":
+        filters = page_context.get("filters") or {}
+        dynamic_prompt += (
+            "\n\nThe student is on the Filter question-bank page. They are narrowing SAT "
+            "questions by section, domain, focus skill, and difficulty. Help them choose "
+            "a healthy amount of targeted practice and explain what the selected filter "
+            "means when useful.\n"
+            f"Selected filters: {json.dumps(filters)}"
+        )
     else:
         dynamic_prompt += (
             "\n\nThe student is in the AI Tutor chat. Use the visible chat history as the "
@@ -261,7 +306,8 @@ def generate_study_plan_json(prompt):
             "content": (
                 "You are a wellbeing-focused SAT study planner. Break the requested "
                 "study time into Pomodoro blocks using 25-minute study intervals and "
-                "5-minute breaks, shortening the final block if needed. Return ONLY a "
+                "5-minute breaks, shortening the final block if needed. The total schedule "
+                "length must exactly match the user's requested amount of time. Return ONLY a "
                 'strict JSON array of objects with keys "time", "task", and "type". '
                 'The "type" value must be either "study" or "break". Use relative '
                 'ranges like "00:00-00:25". No markdown, no prose.'
@@ -271,7 +317,8 @@ def generate_study_plan_json(prompt):
     ]
 
     try:
-        return _extract_json_array(_chat(messages, max_tokens=500, temperature=0.2))
+        task_suggestions = _extract_task_suggestions(_chat(messages, max_tokens=500, temperature=0.2))
+        return _build_pomodoro_plan(prompt, task_suggestions)
     except Exception:
         return _fallback_plan(prompt)
 
