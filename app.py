@@ -124,6 +124,47 @@ def get_question(question_id):
     )
 
 
+@app.route("/api/questions")
+def list_questions():
+    search = request.args.get("q", "").strip()
+    domain = request.args.get("domain", "").strip()
+    skill = request.args.get("skill", "").strip()
+
+    try:
+        limit = min(max(int(request.args.get("limit", 20)), 1), 100)
+    except ValueError:
+        limit = 20
+
+    clauses = []
+    params = []
+    if search:
+        clauses.append("(id LIKE ? OR domain LIKE ? OR skill LIKE ? OR passage LIKE ?)")
+        like_search = f"%{search}%"
+        params.extend([like_search, like_search, like_search, like_search])
+    if domain:
+        clauses.append("domain = ?")
+        params.append(domain)
+    if skill:
+        clauses.append("skill = ?")
+        params.append(skill)
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    conn = get_db()
+    rows = conn.execute(
+        f"""
+        SELECT id, domain, skill, substr(passage, 1, 120) AS preview
+        FROM questions
+        {where_sql}
+        ORDER BY domain, skill, id
+        LIMIT ?
+        """,
+        (*params, limit),
+    ).fetchall()
+    conn.close()
+
+    return jsonify({"questions": [dict(row) for row in rows]})
+
+
 @app.route("/api/buddy_explain", methods=["POST"])
 def buddy_explain():
     data = request.get_json(silent=True) or {}

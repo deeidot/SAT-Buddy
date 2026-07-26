@@ -385,6 +385,46 @@
             margin: 0 auto;
         }
 
+        .question-bank-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .question-bank-item {
+            display: grid;
+            grid-template-columns: 78px 1fr;
+            gap: 10px;
+            align-items: center;
+            width: 100%;
+            min-height: 44px;
+            padding: 9px 11px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #ffffff;
+            color: var(--text);
+            text-align: left;
+        }
+
+        .question-bank-item:hover {
+            border-color: var(--green);
+            background: #fbfdfc;
+        }
+
+        .bank-id {
+            color: var(--green-dark);
+            font-weight: 900;
+        }
+
+        .bank-meta {
+            overflow: hidden;
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 700;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .question-view {
             margin-top: 26px;
             padding-top: 20px;
@@ -543,6 +583,43 @@
             margin-top: 24px;
         }
 
+        .planner-controls {
+            display: grid;
+            gap: 12px;
+            margin-top: 18px;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-left: 5px solid var(--green);
+            border-radius: 0 8px 8px 0;
+            background: #ffffff;
+        }
+
+        .plan-timer {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .timer-readout {
+            font-size: 30px;
+            font-weight: 900;
+            line-height: 1;
+            letter-spacing: 0;
+        }
+
+        .timer-task {
+            color: var(--muted);
+            font-weight: 800;
+        }
+
+        .planner-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         .schedule-list {
             display: grid;
             gap: 10px;
@@ -561,6 +638,18 @@
 
         .schedule-block.break {
             border-left-color: var(--yellow);
+        }
+
+        .schedule-block.active {
+            border-color: var(--green);
+            border-left-color: var(--green);
+            background: var(--surface-strong);
+        }
+
+        .schedule-block.break.active {
+            border-color: var(--yellow);
+            border-left-color: var(--yellow);
+            background: #fff9e6;
         }
 
         .block-time {
@@ -703,6 +792,7 @@
                         <button class="primary-button" type="submit">Search</button>
                     </form>
                     <div id="questionStatus" class="status-line">Ready</div>
+                    <div id="questionBankList" class="question-bank-list"></div>
                 </div>
             </div>
 
@@ -733,6 +823,17 @@
                     <div id="plannerStatus" class="status-line">Ready</div>
                     <section id="schedule" class="schedule" hidden>
                         <h3>Schedule</h3>
+                        <div id="plannerControls" class="planner-controls" hidden>
+                            <div class="plan-timer">
+                                <span id="timerReadout" class="timer-readout">00:00</span>
+                                <span id="timerTask" class="timer-task">Ready</span>
+                            </div>
+                            <div class="planner-actions">
+                                <button id="startPlanBtn" class="primary-button" type="button">Start</button>
+                                <button id="pausePlanBtn" class="secondary-button" type="button">Pause</button>
+                                <button id="resetPlanBtn" class="secondary-button" type="button">Reset</button>
+                            </div>
+                        </div>
                         <div id="scheduleList" class="schedule-list"></div>
                     </section>
                 </div>
@@ -762,6 +863,10 @@
             searchBuddyHistory: [],
             plannerBuddyHistory: [],
             latestPlan: [],
+            planBlockIndex: 0,
+            planRemainingSeconds: 0,
+            planTimerId: null,
+            planRunning: false,
             sessionSeconds: 0,
             breakReminderShown: false,
             mediaRecorder: null,
@@ -784,6 +889,7 @@
         const questionSearchForm = document.getElementById('questionSearchForm');
         const questionIdInput = document.getElementById('questionIdInput');
         const questionStatus = document.getElementById('questionStatus');
+        const questionBankList = document.getElementById('questionBankList');
         const questionView = document.getElementById('questionView');
         const questionMeta = document.getElementById('questionMeta');
         const passageText = document.getElementById('passageText');
@@ -798,6 +904,12 @@
         const plannerStatus = document.getElementById('plannerStatus');
         const schedule = document.getElementById('schedule');
         const scheduleList = document.getElementById('scheduleList');
+        const plannerControls = document.getElementById('plannerControls');
+        const timerReadout = document.getElementById('timerReadout');
+        const timerTask = document.getElementById('timerTask');
+        const startPlanBtn = document.getElementById('startPlanBtn');
+        const pausePlanBtn = document.getElementById('pausePlanBtn');
+        const resetPlanBtn = document.getElementById('resetPlanBtn');
         const explainPopup = document.getElementById('explainPopup');
         const explainYesBtn = document.getElementById('explainYesBtn');
         const explainNoBtn = document.getElementById('explainNoBtn');
@@ -1014,6 +1126,10 @@
             const id = questionIdInput.value.trim();
             if (!id) return;
 
+            loadQuestionById(id);
+        });
+
+        async function loadQuestionById(id) {
             clearLoadedQuestion(false);
             questionIdInput.value = id;
             questionStatus.textContent = 'Searching...';
@@ -1030,7 +1146,33 @@
             } catch (error) {
                 questionStatus.textContent = error.message;
             }
-        });
+        }
+
+        async function loadQuestionBankList() {
+            try {
+                const response = await fetch('/api/questions?limit=20');
+                const data = await response.json();
+                if (!response.ok || !Array.isArray(data.questions)) {
+                    throw new Error('Could not load demo questions.');
+                }
+
+                questionBankList.innerHTML = '';
+                data.questions.forEach(question => {
+                    const item = document.createElement('button');
+                    item.className = 'question-bank-item';
+                    item.type = 'button';
+                    item.innerHTML = `
+                        <span class="bank-id">${escapeHTML(question.id)}</span>
+                        <span class="bank-meta">${escapeHTML(question.domain)} | ${escapeHTML(question.skill)}</span>
+                    `;
+                    item.addEventListener('click', () => loadQuestionById(question.id));
+                    questionBankList.appendChild(item);
+                });
+            } catch (error) {
+                questionBankList.innerHTML = '';
+                questionStatus.textContent = error.message;
+            }
+        }
 
         function loadQuestion(question) {
             state.activeQuestion = question;
@@ -1214,12 +1356,14 @@
 
         function renderSchedule(blocks) {
             state.latestPlan = blocks;
+            resetPlanTimer(false);
             scheduleList.innerHTML = '';
 
-            blocks.forEach(block => {
+            blocks.forEach((block, index) => {
                 const item = document.createElement('div');
                 const type = String(block.type || 'study').toLowerCase();
                 item.className = `schedule-block ${type === 'break' ? 'break' : 'study'}`;
+                item.dataset.blockIndex = String(index);
 
                 const time = document.createElement('div');
                 time.className = 'block-time';
@@ -1233,8 +1377,84 @@
                 scheduleList.appendChild(item);
             });
 
+            setupPlanTimer();
             schedule.hidden = false;
             schedule.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function parseBlockDurationSeconds(timeRange) {
+            const match = String(timeRange || '').match(/(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/);
+            if (!match) return 25 * 60;
+            const start = Number(match[1]) * 60 + Number(match[2]);
+            const end = Number(match[3]) * 60 + Number(match[4]);
+            return Math.max(60, (end - start) * 60);
+        }
+
+        function formatCountdown(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+        }
+
+        function setupPlanTimer() {
+            plannerControls.hidden = state.latestPlan.length === 0;
+            state.planBlockIndex = 0;
+            state.planRunning = false;
+            state.planRemainingSeconds = state.latestPlan.length ? parseBlockDurationSeconds(state.latestPlan[0].time) : 0;
+            renderPlanTimer();
+        }
+
+        function renderPlanTimer() {
+            const block = state.latestPlan[state.planBlockIndex];
+            timerReadout.textContent = formatCountdown(state.planRemainingSeconds);
+            timerTask.textContent = block ? block.task : 'Ready';
+            document.querySelectorAll('.schedule-block').forEach(item => {
+                item.classList.toggle('active', Number(item.dataset.blockIndex) === state.planBlockIndex);
+            });
+        }
+
+        function startPlanTimer() {
+            if (!state.latestPlan.length || state.planRunning) return;
+            state.planRunning = true;
+            state.planTimerId = setInterval(tickPlanTimer, 1000);
+        }
+
+        function pausePlanTimer() {
+            state.planRunning = false;
+            clearInterval(state.planTimerId);
+            state.planTimerId = null;
+        }
+
+        function resetPlanTimer(shouldRender = true) {
+            pausePlanTimer();
+            state.planBlockIndex = 0;
+            state.planRemainingSeconds = state.latestPlan.length ? parseBlockDurationSeconds(state.latestPlan[0].time) : 0;
+            if (shouldRender) renderPlanTimer();
+        }
+
+        function tickPlanTimer() {
+            if (state.planRemainingSeconds > 0) {
+                state.planRemainingSeconds -= 1;
+                renderPlanTimer();
+                return;
+            }
+
+            state.planBlockIndex += 1;
+            if (state.planBlockIndex >= state.latestPlan.length) {
+                pausePlanTimer();
+                timerTask.textContent = 'Plan complete';
+                showBuddyStatus('Nice work. Close the loop with water, movement, or a short reset.');
+                speakText('Nice work. Close the loop with water, movement, or a short reset.');
+                return;
+            }
+
+            const block = state.latestPlan[state.planBlockIndex];
+            state.planRemainingSeconds = parseBlockDurationSeconds(block.time);
+            renderPlanTimer();
+            if (block.type === 'break') {
+                showBuddyStatus('Break block. Step away for a few minutes and let your brain recover.');
+                speakText('Break block. Step away for a few minutes and let your brain recover.');
+            }
         }
 
         function getBuddyContextPayload() {
@@ -1432,10 +1652,14 @@
         buddyButton.addEventListener('pointerdown', startBuddyRecording);
         buddyButton.addEventListener('pointerup', stopBuddyRecording);
         buddyButton.addEventListener('pointercancel', stopBuddyRecording);
+        startPlanBtn.addEventListener('click', startPlanTimer);
+        pausePlanBtn.addEventListener('click', pausePlanTimer);
+        resetPlanBtn.addEventListener('click', () => resetPlanTimer(true));
 
         window.addEventListener('beforeunload', cleanupBuddyRecording);
 
         startNewChat();
+        loadQuestionBankList();
         setInterval(updateWellbeingTimer, 1000);
     </script>
 </body>
