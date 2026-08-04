@@ -388,5 +388,41 @@ def run_proactive_checkin():
     return jsonify({"message": proactive_checkin(current_emotion)})
 
 
+@app.route("/api/wellbeing_nudge", methods=["POST"])
+def wellbeing_nudge():
+    data = request.get_json(silent=True) or {}
+    emotion = str(data.get("emotion", "drowsy")).strip() or "drowsy"
+    planner_context = data.get("planner_context") or {}
+
+    active_block_type = planner_context.get("active_block_type")
+    plan_running = bool(planner_context.get("plan_running"))
+    try:
+        breaks_remaining = max(0, int(planner_context.get("breaks_remaining", 0) or 0))
+    except (TypeError, ValueError):
+        breaks_remaining = 0
+
+    # A planned break should be honored before a model-triggered nudge. A break
+    # block also already provides the right intervention for the learner.
+    defer_nudge = (
+        planner_context.get("plan_complete")
+        or (planner_context.get("has_plan", False) and not plan_running)
+        or active_block_type == "break"
+        or (plan_running and active_block_type == "study" and breaks_remaining > 0)
+    )
+
+    if defer_nudge:
+        return jsonify({
+            "should_nudge": False,
+            "reason": "planned_schedule_has_priority",
+            "planner_context": planner_context,
+        })
+
+    return jsonify({
+        "should_nudge": True,
+        "message": proactive_checkin(emotion, planner_context),
+        "planner_context": planner_context,
+    })
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

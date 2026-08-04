@@ -15,6 +15,7 @@
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 
     <style>
         :root {
@@ -107,6 +108,52 @@
             font-weight: 700;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        .monitor-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 10px clamp(18px, 4vw, 48px);
+            background: #f0f8f4;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .monitor-copy {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .monitor-label {
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 900;
+        }
+
+        .monitor-status {
+            overflow: hidden;
+            color: var(--muted);
+            font-size: 13px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .monitor-status::before {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            margin-right: 6px;
+            border-radius: 50%;
+            background: #aab7b1;
+            content: "";
+        }
+
+        .monitor-status.active::before {
+            background: var(--green);
+            box-shadow: 0 0 0 3px rgba(20, 148, 97, 0.14);
         }
 
         .tabs {
@@ -791,6 +838,12 @@
         }
 
         @media (max-width: 720px) {
+            .monitor-bar {
+                align-items: stretch;
+                flex-direction: column;
+                gap: 8px;
+            }
+
             .topbar {
                 align-items: flex-start;
                 flex-direction: column;
@@ -853,6 +906,16 @@
             <button class="tab-button" type="button" data-tab="study-planner">Study Planner</button>
         </nav>
     </header>
+
+    <section class="monitor-bar" aria-label="Wellbeing monitor">
+        <div class="monitor-copy">
+            <span class="monitor-label">Wellbeing monitor</span>
+            <span id="monitorStatus" class="monitor-status">Camera off</span>
+        </div>
+        <button id="monitorToggle" class="secondary-button" type="button">Enable camera</button>
+        <video id="monitorVideo" playsinline muted hidden></video>
+        <canvas id="monitorCanvas" width="224" height="224" hidden></canvas>
+    </section>
 
     <main class="app-shell">
         <section id="ai-tutor" class="tab-panel active workspace" aria-labelledby="ai-tutor-tab">
@@ -1000,6 +1063,8 @@
             activeQuestion: null,
             explanationVisible: false,
             questionHasAnswer: false,
+            tutorInitialized: false,
+            newChatRequested: false,
             latestExplanation: '',
             searchBuddyHistory: [],
             plannerBuddyHistory: [],
@@ -1019,7 +1084,15 @@
             analyser: null,
             animationFrame: null,
             recording: false,
-            stopRequested: false
+            stopRequested: false,
+            monitorSession: null,
+            monitorStream: null,
+            monitorTimerId: null,
+            monitorInferenceRunning: false,
+            monitorHistory: [],
+            monitorLastNoticeAt: 0,
+            monitorNudgeRequestInFlight: false,
+            monitorModelPromise: null
         };
 
         const FILTER_FALLBACK = {
@@ -1092,6 +1165,10 @@
         const newChatBtn = document.getElementById('newChatBtn');
         const conversationList = document.getElementById('conversationList');
         const wellbeingTimer = document.getElementById('wellbeingTimer');
+        const monitorToggle = document.getElementById('monitorToggle');
+        const monitorStatus = document.getElementById('monitorStatus');
+        const monitorVideo = document.getElementById('monitorVideo');
+        const monitorCanvas = document.getElementById('monitorCanvas');
         const questionSearchForm = document.getElementById('questionSearchForm');
         const questionIdInput = document.getElementById('questionIdInput');
         const questionStatus = document.getElementById('questionStatus');
@@ -1197,12 +1274,26 @@
             chatLog.innerHTML = '';
         }
 
-        function startNewChat() {
+        function showEmptyTutorChat() {
             state.currentConvId = null;
+            state.newChatRequested = true;
             clearChatLog();
-            addChatMessage('assistant', "Hi, I'm Buddy. What SAT question are we working through today?");
             chatStatus.textContent = 'Ready';
             loadConversations();
+        }
+
+        async function initializeTutorChat() {
+            if (state.tutorInitialized) return;
+            state.tutorInitialized = true;
+
+            const conversations = await loadConversations();
+            if (conversations.length) {
+                await loadConversation(conversations[0].id);
+            } else {
+                state.newChatRequested = false;
+                clearChatLog();
+                addChatMessage('assistant', "Hi, I'm Buddy. What SAT question are we working through today?");
+            }
         }
 
         async function loadConversations() {
@@ -1251,6 +1342,7 @@
 
         async function loadConversation(conversationId) {
             state.currentConvId = conversationId;
+            state.newChatRequested = false;
             clearChatLog();
             chatStatus.textContent = 'Loading...';
 
@@ -1279,7 +1371,7 @@
                 if (!response.ok || !data.success) throw new Error('Could not delete chat.');
 
                 if (state.currentConvId === conversationId) {
-                    startNewChat();
+                    showEmptyTutorChat();
                 }
                 loadConversations();
             } catch (error) {
@@ -1298,13 +1390,17 @@
             document.querySelectorAll('.tab-panel').forEach(panel => {
                 panel.classList.toggle('active', panel.id === tabId);
             });
+
+            if (tabId === 'ai-tutor') {
+                initializeTutorChat();
+            }
         }
 
         document.querySelectorAll('.tab-button').forEach(button => {
             button.addEventListener('click', () => setActiveTab(button.dataset.tab));
         });
 
-        newChatBtn.addEventListener('click', startNewChat);
+        newChatBtn.addEventListener('click', showEmptyTutorChat);
 
         chatForm.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -1327,6 +1423,7 @@
                 }
 
                 state.currentConvId = data.conversation_id;
+                state.newChatRequested = false;
                 addChatMessage('assistant', data.tutor_reply);
                 chatStatus.textContent = 'Ready';
                 loadConversations();
@@ -1738,6 +1835,7 @@
             });
 
             setupPlanTimer();
+            state.breakReminderShown = false;
             schedule.hidden = false;
             schedule.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -1824,6 +1922,39 @@
             }
         }
 
+        function getPlannerContext() {
+            const activeBlock = state.latestPlan[state.planBlockIndex] || null;
+            const completedBlocks = state.latestPlan.slice(0, state.planBlockIndex);
+            const futureBlocks = state.latestPlan.slice(state.planBlockIndex + 1);
+            const activeBlockDuration = activeBlock ? parseBlockDurationSeconds(activeBlock.time) : 0;
+            const completedSeconds = completedBlocks.reduce(
+                (total, block) => total + parseBlockDurationSeconds(block.time),
+                0
+            );
+            const elapsedInActiveBlock = activeBlock
+                ? Math.max(0, activeBlockDuration - state.planRemainingSeconds)
+                : 0;
+
+            return {
+                has_plan: state.latestPlan.length > 0 && !state.planComplete,
+                plan_running: state.planRunning,
+                active_block_type: activeBlock ? String(activeBlock.type || 'study').toLowerCase() : null,
+                active_task: activeBlock ? activeBlock.task || '' : '',
+                active_block_index: activeBlock ? state.planBlockIndex : null,
+                elapsed_seconds: completedSeconds + elapsedInActiveBlock,
+                active_block_elapsed_seconds: elapsedInActiveBlock,
+                active_block_remaining_seconds: Math.max(0, state.planRemainingSeconds),
+                breaks_taken: completedBlocks.filter(
+                    block => String(block.type || '').toLowerCase() === 'break'
+                ).length,
+                breaks_remaining: futureBlocks.filter(
+                    block => String(block.type || '').toLowerCase() === 'break'
+                ).length,
+                total_blocks: state.latestPlan.length,
+                plan_complete: state.planComplete
+            };
+        }
+
         function getBuddyContextPayload() {
             if (state.activeTab === 'search-id') {
                 return {
@@ -1842,7 +1973,8 @@
                     history: state.plannerBuddyHistory,
                     context: {
                         prompt: plannerPrompt.value.trim(),
-                        plan: state.latestPlan
+                        plan: state.latestPlan,
+                        planner_status: getPlannerContext()
                     }
                 };
             }
@@ -1904,10 +2036,233 @@
             state.sessionSeconds += 1;
             renderHeaderTimer();
 
-            if (state.sessionSeconds >= 25 * 60 && !state.breakReminderShown) {
+            const plannerContext = getPlannerContext();
+            const planIsLoaded = plannerContext.has_plan;
+            if (
+                !planIsLoaded &&
+                state.sessionSeconds >= 25 * 60 &&
+                !state.breakReminderShown
+            ) {
                 state.breakReminderShown = true;
                 showBuddyStatus('Time for a 5-minute reset. Your score protects itself when your energy does too.');
                 speakText('Time for a 5-minute reset. Your score protects itself when your energy does too.');
+            }
+        }
+
+        const MONITOR_MODEL_URL = '/static/models/mobilenet_v3_large_wellbeing.onnx';
+        const MONITOR_CLASSES = ['drowsy', 'notdrowsy'];
+        const MONITOR_INPUT_SIZE = 224;
+        const MONITOR_SAMPLE_INTERVAL_MS = 3000;
+        const MONITOR_WINDOW_SIZE = 5;
+        const MONITOR_DROWSY_REQUIRED = 4;
+        const MONITOR_CONFIDENCE_THRESHOLD = 0.70;
+        const MONITOR_COOLDOWN_MS = 10 * 60 * 1000;
+
+        function setMonitorStatus(message, active = false) {
+            monitorStatus.textContent = message;
+            monitorStatus.classList.toggle('active', active);
+        }
+
+        async function loadMonitorModel() {
+            if (state.monitorSession) return state.monitorSession;
+            if (!window.ort) {
+                throw new Error('The browser inference library did not load.');
+            }
+            if (!state.monitorModelPromise) {
+                state.monitorModelPromise = window.ort.InferenceSession.create(
+                    MONITOR_MODEL_URL,
+                    { executionProviders: ['wasm'] }
+                );
+            }
+            state.monitorSession = await state.monitorModelPromise;
+            return state.monitorSession;
+        }
+
+        function drawMonitorFrame() {
+            const context = monitorCanvas.getContext('2d', { willReadFrequently: true });
+            const width = monitorVideo.videoWidth;
+            const height = monitorVideo.videoHeight;
+            const side = Math.min(width, height);
+            const sourceX = (width - side) / 2;
+            const sourceY = (height - side) / 2;
+
+            context.drawImage(
+                monitorVideo,
+                sourceX,
+                sourceY,
+                side,
+                side,
+                0,
+                0,
+                MONITOR_INPUT_SIZE,
+                MONITOR_INPUT_SIZE
+            );
+            return context.getImageData(0, 0, MONITOR_INPUT_SIZE, MONITOR_INPUT_SIZE).data;
+        }
+
+        function createMonitorTensor(pixelData) {
+            const mean = [0.485, 0.456, 0.406];
+            const std = [0.229, 0.224, 0.225];
+            const planeSize = MONITOR_INPUT_SIZE * MONITOR_INPUT_SIZE;
+            const values = new Float32Array(3 * planeSize);
+
+            for (let y = 0; y < MONITOR_INPUT_SIZE; y += 1) {
+                for (let x = 0; x < MONITOR_INPUT_SIZE; x += 1) {
+                    const sourceIndex = (y * MONITOR_INPUT_SIZE + x) * 4;
+                    const targetIndex = y * MONITOR_INPUT_SIZE + x;
+                    for (let channel = 0; channel < 3; channel += 1) {
+                        const normalized = pixelData[sourceIndex + channel] / 255;
+                        values[channel * planeSize + targetIndex] = (normalized - mean[channel]) / std[channel];
+                    }
+                }
+            }
+
+            return new window.ort.Tensor(
+                'float32',
+                values,
+                [1, 3, MONITOR_INPUT_SIZE, MONITOR_INPUT_SIZE]
+            );
+        }
+
+        function softmax(values) {
+            const maximum = Math.max(...values);
+            const exponentials = values.map(value => Math.exp(value - maximum));
+            const total = exponentials.reduce((sum, value) => sum + value, 0);
+            return exponentials.map(value => value / total);
+        }
+
+        async function requestWellbeingNudge() {
+            if (state.monitorNudgeRequestInFlight) return;
+            state.monitorNudgeRequestInFlight = true;
+
+            try {
+                const response = await fetch('/api/wellbeing_nudge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        emotion: 'drowsy',
+                        planner_context: getPlannerContext()
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || 'Could not check wellbeing timing.');
+                }
+
+                if (data.should_nudge && data.message) {
+                    state.monitorLastNoticeAt = Date.now();
+                    showBuddyStatus(data.message);
+                    speakText(data.message);
+                } else {
+                    // The planner handled this moment; wait for a fresh signal window.
+                    state.monitorHistory = [];
+                }
+            } catch (error) {
+                console.error('Wellbeing nudge request failed:', error);
+            } finally {
+                state.monitorNudgeRequestInFlight = false;
+            }
+        }
+
+        function handleMonitorPrediction(label, confidence) {
+            const isConfidentDrowsy = label === 'drowsy' && confidence >= MONITOR_CONFIDENCE_THRESHOLD;
+            state.monitorHistory.push(isConfidentDrowsy);
+            if (state.monitorHistory.length > MONITOR_WINDOW_SIZE) {
+                state.monitorHistory.shift();
+            }
+
+            const drowsySignals = state.monitorHistory.filter(Boolean).length;
+            const cooldownComplete = Date.now() - state.monitorLastNoticeAt >= MONITOR_COOLDOWN_MS;
+            if (
+                state.monitorHistory.length === MONITOR_WINDOW_SIZE &&
+                drowsySignals >= MONITOR_DROWSY_REQUIRED &&
+                cooldownComplete &&
+                !state.monitorNudgeRequestInFlight
+            ) {
+                requestWellbeingNudge();
+            }
+        }
+
+        async function sampleMonitorFrame() {
+            if (
+                !state.monitorSession ||
+                !state.monitorStream ||
+                state.monitorInferenceRunning ||
+                document.hidden ||
+                !monitorVideo.videoWidth
+            ) {
+                return;
+            }
+
+            state.monitorInferenceRunning = true;
+            try {
+                const pixels = drawMonitorFrame();
+                const input = createMonitorTensor(pixels);
+                const inputName = state.monitorSession.inputNames[0];
+                const outputName = state.monitorSession.outputNames[0];
+                const output = await state.monitorSession.run({ [inputName]: input });
+                const probabilities = softmax(Array.from(output[outputName].data));
+                const bestIndex = probabilities.indexOf(Math.max(...probabilities));
+                const label = MONITOR_CLASSES[bestIndex] || 'uncertain';
+                const confidence = probabilities[bestIndex] || 0;
+
+                setMonitorStatus(`${label} ${Math.round(confidence * 100)}%`, true);
+                handleMonitorPrediction(label, confidence);
+            } catch (error) {
+                setMonitorStatus('Inference unavailable', false);
+                console.error('Wellbeing monitor inference failed:', error);
+            } finally {
+                state.monitorInferenceRunning = false;
+            }
+        }
+
+        function stopWellbeingMonitor(message = 'Camera off') {
+            if (state.monitorTimerId) {
+                clearInterval(state.monitorTimerId);
+                state.monitorTimerId = null;
+            }
+            if (state.monitorStream) {
+                state.monitorStream.getTracks().forEach(track => track.stop());
+            }
+            state.monitorStream = null;
+            state.monitorSession = null;
+            state.monitorModelPromise = null;
+            state.monitorHistory = [];
+            state.monitorInferenceRunning = false;
+            monitorVideo.srcObject = null;
+            monitorToggle.textContent = 'Enable camera';
+            setMonitorStatus(message, false);
+        }
+
+        async function startWellbeingMonitor() {
+            monitorToggle.disabled = true;
+            setMonitorStatus('Loading model...', false);
+
+            try {
+                await loadMonitorModel();
+                state.monitorStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user' },
+                    audio: false
+                });
+                monitorVideo.srcObject = state.monitorStream;
+                await monitorVideo.play();
+                state.monitorHistory = [];
+                monitorToggle.textContent = 'Stop camera';
+                setMonitorStatus('Monitoring on', true);
+                await sampleMonitorFrame();
+                state.monitorTimerId = setInterval(sampleMonitorFrame, MONITOR_SAMPLE_INTERVAL_MS);
+            } catch (error) {
+                stopWellbeingMonitor(error.message || 'Camera access was not available.');
+            } finally {
+                monitorToggle.disabled = false;
+            }
+        }
+
+        function toggleWellbeingMonitor() {
+            if (state.monitorStream) {
+                stopWellbeingMonitor();
+            } else {
+                startWellbeingMonitor();
             }
         }
 
@@ -2053,6 +2408,7 @@
         buddyButton.addEventListener('pointerdown', startBuddyRecording);
         buddyButton.addEventListener('pointerup', stopBuddyRecording);
         buddyButton.addEventListener('pointercancel', stopBuddyRecording);
+        monitorToggle.addEventListener('click', toggleWellbeingMonitor);
         startPlanBtn.addEventListener('click', startPlanTimer);
         pausePlanBtn.addEventListener('click', pausePlanTimer);
         resetPlanBtn.addEventListener('click', () => resetPlanTimer(true));
@@ -2062,8 +2418,14 @@
         difficultyFilter.addEventListener('change', loadFilteredQuestions);
 
         window.addEventListener('beforeunload', cleanupBuddyRecording);
+        window.addEventListener('beforeunload', () => stopWellbeingMonitor());
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && state.monitorStream) {
+                stopWellbeingMonitor('Paused while tab is hidden');
+            }
+        });
 
-        startNewChat();
+        initializeTutorChat();
         initializeFilters();
         setInterval(updateWellbeingTimer, 1000);
     </script>

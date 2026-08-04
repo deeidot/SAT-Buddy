@@ -323,11 +323,24 @@ def generate_study_plan_json(prompt):
         return _fallback_plan(prompt)
 
 
-def proactive_checkin(emotion):
+def proactive_checkin(emotion, planner_context=None):
+    planner_context = planner_context or {}
+    if planner_context.get("has_plan"):
+        schedule_context = (
+            f"The learner is {planner_context.get('active_block_type', 'studying')} "
+            f"on task '{planner_context.get('active_task', 'their SAT work')}'. "
+            f"They have been in the plan for about "
+            f"{round(float(planner_context.get('elapsed_seconds', 0) or 0) / 60)} minutes, "
+            f"have completed {planner_context.get('breaks_taken', 0)} break(s), and "
+            f"have {planner_context.get('breaks_remaining', 0)} planned break(s) remaining."
+        )
+    else:
+        schedule_context = "The learner does not currently have an active study plan."
+
     prompt = (
         f"The user has been looking {emotion} for a while while studying. Say one short, "
-        "encouraging sentence to check in on them. Keep it under 20 words. Do not ask a "
-        "math question, just offer support."
+        f"encouraging sentence to check in on them. Keep it under 20 words. Do not ask a "
+        f"math question, just offer support. {schedule_context}"
     )
     messages = [
         {"role": "system", "content": "You are a supportive SAT tutor."},
